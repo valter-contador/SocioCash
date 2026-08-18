@@ -42,6 +42,10 @@ interface PartnerExtract {
   lucros: number;    // líquido informado
   irrfBase: number;  // base de cálculo (lucros / 0,9)
   irrf: number;
+  // Fase 3 — análise de risco de conta corrente de sócio:
+  saldoDevedor: number;      // Empréstimo − Pagto Empréstimo acumulado até o fim do mês (>0 = sócio deve)
+  temMutuo: boolean;         // existe contrato de mútuo empresa→sócio para o par
+  cobertoVigente: boolean;   // existe mútuo empresa→sócio ainda dentro do prazo (vencimento ≥ fim do mês)
 }
 
 const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
@@ -51,6 +55,12 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
 
   const closing = useMemo(() => {
     if (!selectedCompanyId) return null;
+
+    // Último dia do mês selecionado (para saldo devedor acumulado).
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    const endStr = `${selectedYear}-${pad(selectedMonth + 1)}-${pad(lastDay)}`;
+    const mutuos = data.mutuos || [];
 
     // Lançamentos da empresa no período (mês/ano de competência) com sócio.
     const periodTx = data.transactions.filter(t => {
@@ -95,6 +105,19 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
       const irrfBase = irrfBaseFromNet(lucros);
       const irrf = irrfLucrosFromNet(lucros);
 
+      // Saldo devedor de empréstimos ACUMULADO até o fim do mês:
+      // Empréstimo (empresa→sócio) − Pagto Empréstimo (sócio→empresa).
+      const cumTx = data.transactions.filter(t =>
+        t.companyId === selectedCompanyId && t.partnerId === partnerId && t.date <= endStr);
+      const emprestado = cumTx.filter(t => t.nature === TransactionNature.EMPRESTIMO).reduce((s, t) => s + t.value, 0);
+      const devolvido = cumTx.filter(t => t.nature === TransactionNature.PAGTO_EMPRESTIMO).reduce((s, t) => s + t.value, 0);
+      const saldoDevedor = emprestado - devolvido;
+
+      // Cobertura por contrato de mútuo (empresa→sócio) para o par.
+      const mutuosPar = mutuos.filter(mu => mu.companyId === selectedCompanyId && mu.partnerId === partnerId && mu.direction === 'EMPRESA_PARA_SOCIO');
+      const temMutuo = mutuosPar.length > 0;
+      const cobertoVigente = mutuosPar.some(mu => mu.dueDate >= endStr);
+
       return {
         partnerId,
         partnerName: partner?.name || 'Sócio',
@@ -103,6 +126,9 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
         totalEntradas,
         totalSaidas,
         lucros,
+        saldoDevedor,
+        temMutuo,
+        cobertoVigente,
         irrfBase,
         irrf
       };
@@ -112,8 +138,12 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
     const totalIrrf = extracts.reduce((s, e) => s + e.irrf, 0);
     const totalEntradas = extracts.reduce((s, e) => s + e.totalEntradas, 0);
     const totalSaidas = extracts.reduce((s, e) => s + e.totalSaidas, 0);
+    // Saldo devedor de sócio SEM cobertura de mútuo vigente (risco de reclassificação).
+    const saldoDevedorRisco = extracts
+      .filter(e => e.saldoDevedor > 0 && !e.cobertoVigente)
+      .reduce((s, e) => s + e.saldoDevedor, 0);
 
-    return { extracts, totalLucros, totalIrrf, totalEntradas, totalSaidas };
+    return { extracts, totalLucros, totalIrrf, totalEntradas, totalSaidas, saldoDevedorRisco };
   }, [data, selectedCompanyId, selectedMonth, selectedYear]);
 
   const company = data.companies.find(c => c.id === selectedCompanyId);
@@ -269,6 +299,19 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
             </div>
           </div>
 
+          {/* Alerta de conta corrente de sócio (saldo devedor sem cobertura) */}
+          {closing.saldoDevedorRisco > 0 && (
+            <div className="bg-rose-50 border-l-4 border-rose-400 p-5 rounded-r-2xl shadow-sm">
+              <div className="flex items-start gap-3">
+                <AlertTriangle size={18} className="text-rose-500 mt-0.5 shrink-0" />
+                <p className="text-sm text-rose-800 font-semibold leading-relaxed">
+                  <span className="uppercase tracking-[0.2em] text-[10px] block mb-1 opacity-70">Risco — Conta Corrente de Sócios</span>
+                  Há {formatCurrency(closing.saldoDevedorRisco)} em <strong>saldo devedor de sócio sem contrato de mútuo vigente</strong> ao fim do período. Saldos não devolvidos ou não formalizados podem ser reclassificados como distribuição de lucros (somando ao teto de R$ 50.000 para o IRRF) ou como pró-labore. Veja os detalhes por sócio abaixo.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Extratos por sócio */}
           {closing.extracts.length > 0 ? closing.extracts.map(ext => (
             <div key={ext.partnerId} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
@@ -365,6 +408,52 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
                   )}
                 </div>
               </div>
+
+              {ext.saldoDevedor > 0 && (() => {
+                const lucrosAjustado = ext.lucros + ext.saldoDevedor;
+                const riscoBase = irrfBaseFromNet(lucrosAjustado);
+                const riscoIrrf = irrfLucrosFromNet(lucrosAjustado);
+                const coberto = ext.cobertoVigente;
+                return (
+                  <div className="px-6 lg:px-8 pb-6 lg:pb-8">
+                    <div className={`rounded-2xl border p-5 ${coberto ? 'bg-amber-50/40 border-amber-100' : 'bg-rose-50 border-rose-200'}`}>
+                      <div className="flex items-center gap-2 mb-3">
+                        {coberto ? <ShieldCheck size={16} className="text-amber-500" /> : <AlertTriangle size={16} className="text-rose-500" />}
+                        <h5 className="text-[11px] font-black uppercase tracking-widest text-slate-700">Conta Corrente do Sócio — Análise de Risco</h5>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                        <div className="flex justify-between items-baseline bg-white/60 rounded-xl px-3 py-2 border border-slate-100">
+                          <span className="text-[11px] font-semibold text-slate-500">Saldo devedor (empréstimos)</span>
+                          <span className="text-sm font-black text-slate-800">{formatCurrency(ext.saldoDevedor)}</span>
+                        </div>
+                        <div className="flex justify-between items-baseline bg-white/60 rounded-xl px-3 py-2 border border-slate-100">
+                          <span className="text-[11px] font-semibold text-slate-500">Cobertura por mútuo</span>
+                          <span className={`text-[11px] font-black ${coberto ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {ext.temMutuo ? (coberto ? 'Contrato vigente' : 'Contrato vencido') : 'Sem contrato'}
+                          </span>
+                        </div>
+                      </div>
+                      {coberto ? (
+                        <p className="text-[12px] text-amber-800 font-semibold leading-relaxed">
+                          Saldo coberto por contrato de mútuo vigente — risco mitigado. Evite renovações sucessivas no vencimento (o "rola-dívida" é visto como fraude pela Receita).
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          <p className="text-[12px] text-rose-700 font-semibold leading-relaxed">
+                            Saldo devedor <strong>sem mútuo vigente</strong> ao fim do mês pode ser reclassificado como distribuição de lucros (ou, sem lucro contábil suficiente, como pró-labore). Cenário de IRRF se o saldo for somado aos lucros:
+                          </p>
+                          <div className="bg-white/70 rounded-xl p-3 border border-rose-100 text-[12px] font-bold text-slate-700 space-y-1">
+                            <div className="flex justify-between"><span>Lucros + saldo devedor</span><span className="font-black">{formatCurrency(lucrosAjustado)}</span></div>
+                            <div className="flex justify-between"><span>Base de Cálculo (+10%)</span><span className="font-black">{formatCurrency(riscoBase)}</span></div>
+                            <div className="flex justify-between text-rose-600"><span>IRRF ({(IRRF_LUCROS_RATE * 100).toFixed(0)}%)</span><span className="font-black">{riscoIrrf > 0 ? formatCurrency(riscoIrrf) : `Isento (< ${formatCurrency(IRRF_LUCROS_THRESHOLD)})`}</span></div>
+                          </div>
+                          <p className="text-[11px] text-slate-500 font-medium">Recomendação: formalizar contrato de mútuo (aba Mútuos) ou devolver o valor ao caixa antes do fechamento.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )) : (
             <div className="bg-white border-2 border-dashed border-slate-200 rounded-[3rem] py-24 text-center flex flex-col items-center shadow-sm">
