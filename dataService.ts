@@ -40,7 +40,15 @@ export const saveSession = (s: Session | null) => {
   else localStorage.removeItem(SESSION_KEY);
 };
 
+export const hasAnyPassword = (data: AppData): boolean => {
+  const access = data.access || {};
+  return !!(access.adminPassword || access.analystPassword) || data.companies.some(c => !!c.clientPassword);
+};
+
 export const authenticate = (data: AppData, password: string): Session | null => {
+  // Configuração inicial: sem nenhuma senha cadastrada, libera como Administrador
+  // para que seja possível definir as senhas dentro do app.
+  if (!hasAnyPassword(data)) return { role: 'admin', label: 'Administrador' };
   const pwd = (password || '').trim();
   if (!pwd) return null;
   const access = data.access || {};

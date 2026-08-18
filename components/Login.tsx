@@ -84,7 +84,7 @@ const Login: React.FC<LoginProps> = ({ data, onLogin }) => {
 
           {noPasswordsConfigured && (
             <div className="text-[12px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-3 font-medium leading-relaxed">
-              Nenhuma senha foi cadastrada ainda. Defina as senhas em <strong>Empresas → Controle de Acesso</strong> (a primeira configuração pode ser feita pelo administrador do sistema).
+              <strong>Configuração inicial:</strong> nenhuma senha foi cadastrada ainda. Clique em <strong>Entrar</strong> para acessar como Administrador e definir as senhas em <strong>Empresas → Controle de Acesso</strong>.
             </div>
           )}
 
@@ -92,7 +92,7 @@ const Login: React.FC<LoginProps> = ({ data, onLogin }) => {
             type="submit"
             className="w-full py-4 bg-[#2B589A] text-white font-black rounded-[1.25rem] hover:bg-[#1E3F6D] shadow-lg shadow-[#2B589A]/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
           >
-            <LogIn size={18} /> Entrar
+            <LogIn size={18} /> {noPasswordsConfigured ? 'Entrar (configuração inicial)' : 'Entrar'}
           </button>
 
           <p className="text-[10px] text-slate-400 text-center leading-relaxed">
