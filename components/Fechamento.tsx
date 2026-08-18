@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info, Building2, Filter, FileText, FileSpreadsheet } from 'lucide-react';
 import { AppData, Transaction, TransactionType, TransactionNature, NATURE_ORDER, NATURE_META } from '../types';
-import { formatCurrency, IRRF_LUCROS_THRESHOLD, IRRF_LUCROS_RATE } from '../dataService';
+import { formatCurrency, IRRF_LUCROS_THRESHOLD, IRRF_LUCROS_RATE, irrfBaseFromNet, irrfLucrosFromNet } from '../dataService';
 import { exportFechamentoPdf, exportFechamentoXlsx, FechamentoExport } from '../exportService';
 
 interface FechamentoProps {
@@ -39,7 +39,8 @@ interface PartnerExtract {
   groups: NatureGroup[];
   totalEntradas: number;
   totalSaidas: number;
-  lucros: number;
+  lucros: number;    // líquido informado
+  irrfBase: number;  // base de cálculo (lucros / 0,9)
   irrf: number;
 }
 
@@ -87,10 +88,12 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
         .filter(g => NATURE_META[g.nature].type === TransactionType.DEBIT)
         .reduce((s, g) => s + g.subtotal, 0);
 
-      // IRRF: total de Retirada de Lucros deste sócio NESTA empresa no mês.
+      // IRRF: total de Retirada de Lucros (líquido) deste sócio NESTA empresa no mês.
+      // Base de cálculo = líquido / 0,9 (gross-up); IRRF = base × 10% acima do teto.
       const lucrosGroup = groups.find(g => g.nature === TransactionNature.RETIRADA_LUCROS);
       const lucros = lucrosGroup ? lucrosGroup.subtotal : 0;
-      const irrf = lucros > IRRF_LUCROS_THRESHOLD ? lucros * IRRF_LUCROS_RATE : 0;
+      const irrfBase = irrfBaseFromNet(lucros);
+      const irrf = irrfLucrosFromNet(lucros);
 
       return {
         partnerId,
@@ -100,6 +103,7 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
         totalEntradas,
         totalSaidas,
         lucros,
+        irrfBase,
         irrf
       };
     }).sort((a, b) => a.partnerName.localeCompare(b.partnerName));
@@ -131,6 +135,7 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
         totalEntradas: e.totalEntradas,
         totalSaidas: e.totalSaidas,
         lucros: e.lucros,
+        irrfBase: e.irrfBase,
         irrf: e.irrf,
         groups: e.groups.map(g => ({
           natureLabel: NATURE_META[g.nature].label,
@@ -338,14 +343,24 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
                   <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest mb-1 text-[#2B589A]">
                     <Landmark size={12} /> Revisão IRRF — Lucros
                   </div>
-                  <div className="text-xl font-black text-slate-800 tracking-tight">{formatCurrency(ext.lucros)}</div>
+                  <div className="space-y-0.5">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[11px] font-semibold text-slate-500">Lucros (líquido)</span>
+                      <span className="text-sm font-black text-slate-800 tracking-tight">{formatCurrency(ext.lucros)}</span>
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[11px] font-semibold text-slate-500">Base de Cálculo IRRF (+10%)</span>
+                      <span className="text-sm font-black text-slate-800 tracking-tight">{formatCurrency(ext.irrfBase)}</span>
+                    </div>
+                  </div>
                   {ext.irrf > 0 ? (
-                    <div className="mt-1 text-[11px] font-bold text-rose-600">
-                      Base &gt; {formatCurrency(IRRF_LUCROS_THRESHOLD)} · IRRF ({(IRRF_LUCROS_RATE * 100).toFixed(0)}%): {formatCurrency(ext.irrf)}
+                    <div className="mt-2 pt-2 border-t border-rose-200 flex justify-between items-baseline">
+                      <span className="text-[11px] font-black text-rose-600 uppercase tracking-wider">IRRF ({(IRRF_LUCROS_RATE * 100).toFixed(0)}%)</span>
+                      <span className="text-base font-black text-rose-600 tracking-tight">{formatCurrency(ext.irrf)}</span>
                     </div>
                   ) : (
-                    <div className="mt-1 text-[11px] font-semibold text-slate-400">
-                      Isento — abaixo de {formatCurrency(IRRF_LUCROS_THRESHOLD)}
+                    <div className="mt-2 pt-2 border-t border-slate-100 text-[11px] font-semibold text-slate-400">
+                      Isento — lucros abaixo de {formatCurrency(IRRF_LUCROS_THRESHOLD)}
                     </div>
                   )}
                 </div>
