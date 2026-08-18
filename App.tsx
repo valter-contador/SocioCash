@@ -14,7 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   MessageSquare,
-  LogOut
+  LogOut,
+  Handshake
 } from 'lucide-react';
 import { AppData, Session, Role } from './types';
 import { loadData, saveData, loadSession, saveSession, scopeDataForSession } from './dataService';
@@ -24,6 +25,7 @@ import Partners from './components/Partners';
 import Transactions from './components/Transactions';
 import Reports from './components/Reports';
 import Fechamento from './components/Fechamento';
+import Mutuos from './components/Mutuos';
 import Login from './components/Login';
 
 const ROLE_LABEL: Record<Role, string> = {
@@ -38,6 +40,7 @@ const NAV: NavDef[] = [
   { to: '/empresas', label: 'Empresas', roles: ['admin', 'analyst'] },
   { to: '/socios', label: 'Sócios', roles: ['admin', 'analyst'] },
   { to: '/transacoes', label: 'Movimentações', roles: ['admin', 'analyst'] },
+  { to: '/mutuos', label: 'Mútuos', roles: ['admin', 'analyst'] },
   { to: '/fechamento', label: 'Fechamento', roles: ['admin', 'analyst', 'client'] },
   { to: '/relatorios', label: 'Relatórios', roles: ['admin', 'analyst', 'client'] },
 ];
@@ -46,6 +49,7 @@ const NAV_ICON: Record<string, React.ReactNode> = {
   '/empresas': <Building2 size={20} />,
   '/socios': <Users size={20} />,
   '/transacoes': <ArrowRightLeft size={20} />,
+  '/mutuos': <Handshake size={20} />,
   '/fechamento': <CalendarClock size={20} />,
   '/relatorios': <FileText size={20} />,
 };
@@ -191,6 +195,7 @@ const App: React.FC = () => {
                 {canManage && <Route path="/empresas" element={<Companies data={data} onUpdate={updateData} role={role} />} />}
                 {canManage && <Route path="/socios" element={<Partners data={data} onUpdate={updateData} />} />}
                 {canManage && <Route path="/transacoes" element={<Transactions data={data} onUpdate={updateData} />} />}
+                {canManage && <Route path="/mutuos" element={<Mutuos data={data} onUpdate={updateData} />} />}
                 <Route path="/fechamento" element={<Fechamento data={scopedData} />} />
                 <Route path="/relatorios" element={<Reports data={scopedData} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
