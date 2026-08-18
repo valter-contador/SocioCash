@@ -295,7 +295,8 @@ const dataExtenso = (d = new Date()) => {
 
 type ContratoBlock =
   | { kind: 'title' | 'note' | 'para' | 'heading'; text: string }
-  | { kind: 'signrow'; left: string; right: string };
+  | { kind: 'signrow'; left: string; right: string }
+  | { kind: 'spacer' };
 
 const numBR = (n: number): string => Math.round(n).toLocaleString('pt-BR');
 
@@ -313,7 +314,6 @@ const buildContratoBlocks = (m: MutuoContrato): { blocks: ContratoBlock[]; fileB
   const b: ContratoBlock[] = [];
   // Título sem a referência "GRATUITO" (para não estimular a prática).
   b.push({ kind: 'title', text: `CONTRATO DE MÚTUO${oneroso ? ' FENERATÍCIO' : ''}` });
-  b.push({ kind: 'note', text: 'MINUTA para conferência jurídica/contábil. Recomenda-se assinatura com firma reconhecida ou assinatura digital, e escrituração nas contabilidades de ambas as partes.' });
   b.push({ kind: 'para', text: 'Pelo presente instrumento particular, as partes a seguir qualificadas:' });
   b.push({ kind: 'para', text: `MUTUANTE: ${mutuante}; e` });
   b.push({ kind: 'para', text: `MUTUÁRIO: ${mutuario}.` });
@@ -339,8 +339,11 @@ const buildContratoBlocks = (m: MutuoContrato): { blocks: ContratoBlock[]; fileB
   b.push({ kind: 'heading', text: 'CLÁUSULA 6ª — DO FORO' });
   b.push({ kind: 'para', text: `Fica eleito o foro da comarca de ${m.foroComarca || '____________________'} para dirimir quaisquer controvérsias oriundas do presente contrato.` });
   if (m.observacao) { b.push({ kind: 'heading', text: 'OBSERVAÇÕES' }); b.push({ kind: 'para', text: m.observacao }); }
+  b.push({ kind: 'spacer' });
   b.push({ kind: 'para', text: 'E, por estarem assim justas e contratadas, as partes assinam o presente instrumento em 2 (duas) vias de igual teor e forma, na presença das testemunhas abaixo.' });
+  b.push({ kind: 'spacer' });
   b.push({ kind: 'para', text: `${m.foroComarca || '____________________'}, ${dataExtenso()}.` });
+  b.push({ kind: 'spacer' });
   b.push({ kind: 'signrow', left: 'MUTUANTE', right: 'MUTUÁRIO' });
 
   const fileBase = empresaEhMutuante ? `${slug(m.empresaFantasia)}-para-${slug(m.socioNome)}` : `${slug(m.socioNome)}-para-${slug(m.empresaFantasia)}`;
@@ -382,6 +385,9 @@ export const exportMutuoContratoPdf = (m: MutuoContrato) => {
       doc.text(bl.left, leftX + colW / 2, y, { align: 'center' });
       doc.text(bl.right, rightX + colW / 2, y, { align: 'center' });
       y += 22;
+    } else if (bl.kind === 'spacer') {
+      // Duas linhas em branco — espaço para reserva/leitura antes de assinar.
+      y += 28;
     } else {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
       const lines = doc.splitTextToSize(bl.text, maxW); ensure(lines.length * 14 + 10);
@@ -426,12 +432,14 @@ const buildSignatureTable = (left: string, right: string): Table =>
 
 export const exportMutuoContratoDocx = async (m: MutuoContrato) => {
   const { blocks, fileBase } = buildContratoBlocks(m);
-  const children = blocks.map(bl => {
-    if (bl.kind === 'title') return new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 220 }, children: [new TextRun({ text: bl.text, bold: true, size: 28, color: '2B589A' })] });
-    if (bl.kind === 'note') return new Paragraph({ spacing: { after: 180 }, children: [new TextRun({ text: bl.text, italics: true, size: 16, color: '9A3412' })] });
-    if (bl.kind === 'heading') return new Paragraph({ spacing: { before: 180, after: 60 }, children: [new TextRun({ text: bl.text, bold: true, size: 21 })] });
-    if (bl.kind === 'signrow') return buildSignatureTable(bl.left, bl.right);
-    return new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { after: 120 }, children: [new TextRun({ text: bl.text, size: 20 })] });
+  const children = blocks.flatMap(bl => {
+    if (bl.kind === 'title') return [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 220 }, children: [new TextRun({ text: bl.text, bold: true, size: 28, color: '2B589A' })] })];
+    if (bl.kind === 'note') return [new Paragraph({ spacing: { after: 180 }, children: [new TextRun({ text: bl.text, italics: true, size: 16, color: '9A3412' })] })];
+    if (bl.kind === 'heading') return [new Paragraph({ spacing: { before: 180, after: 60 }, children: [new TextRun({ text: bl.text, bold: true, size: 21 })] })];
+    if (bl.kind === 'signrow') return [buildSignatureTable(bl.left, bl.right)];
+    // Duas linhas em branco — espaço para reserva/leitura antes de assinar.
+    if (bl.kind === 'spacer') return [new Paragraph({ children: [] }), new Paragraph({ children: [] })];
+    return [new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { after: 120 }, children: [new TextRun({ text: bl.text, size: 20 })] })];
   });
   const doc = new Document({ sections: [{ properties: {}, children }] });
   const blob = await Packer.toBlob(doc);
