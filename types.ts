@@ -95,6 +95,14 @@ export interface User {
   name: string;
 }
 
+export type Role = 'admin' | 'analyst' | 'client';
+
+export interface Session {
+  role: Role;
+  companyId?: string; // definido quando o perfil é cliente (escopo da empresa)
+  label: string;      // rótulo exibido (nome do perfil ou da empresa)
+}
+
 export interface AppData {
   companies: Company[];
   partners: Partner[];

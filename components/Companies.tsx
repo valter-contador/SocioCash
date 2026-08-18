@@ -1,14 +1,15 @@
 
 import React, { useState } from 'react';
 import { Plus, Trash2, Edit3, Building2, Landmark, X, KeyRound, Eye, EyeOff, ShieldAlert, Lock } from 'lucide-react';
-import { AppData, Company, BankAccount, AccountType } from '../types';
+import { AppData, Company, BankAccount, AccountType, Role } from '../types';
 
 interface CompaniesProps {
   data: AppData;
   onUpdate: (data: AppData) => void;
+  role?: Role;
 }
 
-const Companies: React.FC<CompaniesProps> = ({ data, onUpdate }) => {
+const Companies: React.FC<CompaniesProps> = ({ data, onUpdate, role }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [isAddingAccount, setIsAddingAccount] = useState<string | null>(null);
   const [showPasswords, setShowPasswords] = useState(false);
@@ -93,7 +94,8 @@ const Companies: React.FC<CompaniesProps> = ({ data, onUpdate }) => {
         </button>
       </div>
 
-      {/* Controle de Acesso Global (equipe JC Buarque) */}
+      {/* Controle de Acesso Global (equipe JC Buarque) — só administrador */}
+      {role === 'admin' && (
       <div className="bg-white p-6 lg:p-8 rounded-3xl border border-slate-200 shadow-sm">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-5">
           <div className="flex items-center gap-3">
@@ -143,6 +145,7 @@ const Companies: React.FC<CompaniesProps> = ({ data, onUpdate }) => {
           <span>App sem servidor: as senhas ficam guardadas no navegador (localStorage) e servem como trava organizacional — não como segurança real. Para acesso protegido de verdade, é necessário um backend com login.</span>
         </div>
       </div>
+      )}
 
       {isAdding && (
         <div className="bg-white p-8 rounded-3xl border-2 border-[#2B589A]/10 shadow-xl animate-in fade-in slide-in-from-top-4">

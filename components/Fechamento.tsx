@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
-import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info, Building2, Filter } from 'lucide-react';
+import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info, Building2, Filter, FileText, FileSpreadsheet } from 'lucide-react';
 import { AppData, Transaction, TransactionType, TransactionNature, NATURE_ORDER, NATURE_META } from '../types';
 import { formatCurrency, IRRF_LUCROS_THRESHOLD, IRRF_LUCROS_RATE } from '../dataService';
+import { exportFechamentoPdf, exportFechamentoXlsx, FechamentoExport } from '../exportService';
 
 interface FechamentoProps {
   data: AppData;
@@ -113,6 +114,38 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
 
   const company = data.companies.find(c => c.id === selectedCompanyId);
 
+  const buildExport = (): FechamentoExport | null => {
+    if (!closing || !company) return null;
+    return {
+      companyFantasia: company.nomeFantasia,
+      companyRazao: company.razaoSocial,
+      periodo: `${months[selectedMonth]}/${selectedYear}`,
+      irrfThreshold: IRRF_LUCROS_THRESHOLD,
+      irrfRatePct: IRRF_LUCROS_RATE * 100,
+      totalEntradas: closing.totalEntradas,
+      totalSaidas: closing.totalSaidas,
+      totalIrrf: closing.totalIrrf,
+      extracts: closing.extracts.map(e => ({
+        partnerName: e.partnerName,
+        partnerCpf: e.partnerCpf,
+        totalEntradas: e.totalEntradas,
+        totalSaidas: e.totalSaidas,
+        lucros: e.lucros,
+        irrf: e.irrf,
+        groups: e.groups.map(g => ({
+          natureLabel: NATURE_META[g.nature].label,
+          isCredit: NATURE_META[g.nature].type === TransactionType.CREDIT,
+          subtotal: g.subtotal,
+          txs: g.txs.map(t => ({ date: t.date, description: t.description, value: t.value }))
+        }))
+      }))
+    };
+  };
+
+  const canExport = !!closing && closing.extracts.length > 0;
+  const handleExportPdf = () => { const d = buildExport(); if (d) exportFechamentoPdf(d); };
+  const handleExportXlsx = () => { const d = buildExport(); if (d) exportFechamentoXlsx(d); };
+
   return (
     <div className="space-y-8 pb-24">
       {/* Cabeçalho */}
@@ -171,6 +204,24 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
               {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
+        </div>
+        <div className="flex gap-3 ml-auto">
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            disabled={!canExport}
+            className="flex items-center gap-2 px-5 py-4 bg-[#2B589A] text-white rounded-2xl font-black tracking-tight shadow-lg shadow-[#2B589A]/20 hover:bg-[#1E3F6D] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          >
+            <FileText size={18} /> PDF
+          </button>
+          <button
+            type="button"
+            onClick={handleExportXlsx}
+            disabled={!canExport}
+            className="flex items-center gap-2 px-5 py-4 bg-emerald-600 text-white rounded-2xl font-black tracking-tight shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          >
+            <FileSpreadsheet size={18} /> Excel
+          </button>
         </div>
       </div>
 

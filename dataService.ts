@@ -1,7 +1,8 @@
 
-import { AppData, Company, Partner, BankAccount, Transaction, TransactionType } from './types';
+import { AppData, Company, Partner, BankAccount, Transaction, TransactionType, Session } from './types';
 
 const STORAGE_KEY = 'sociocash_data';
+const SESSION_KEY = 'sociocash_session';
 
 export const initialData: AppData = {
   companies: [],
@@ -25,6 +26,47 @@ export const loadData = (): AppData => {
 
 export const saveData = (data: AppData) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+};
+
+// ---------- Autenticação (trava simples baseada em senhas do localStorage) ----------
+export const loadSession = (): Session | null => {
+  const raw = localStorage.getItem(SESSION_KEY);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+};
+
+export const saveSession = (s: Session | null) => {
+  if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+  else localStorage.removeItem(SESSION_KEY);
+};
+
+export const authenticate = (data: AppData, password: string): Session | null => {
+  const pwd = (password || '').trim();
+  if (!pwd) return null;
+  const access = data.access || {};
+  if (access.adminPassword && pwd === access.adminPassword) return { role: 'admin', label: 'Administrador' };
+  if (access.analystPassword && pwd === access.analystPassword) return { role: 'analyst', label: 'Analista Contábil' };
+  const comp = data.companies.find(c => c.clientPassword && c.clientPassword === pwd);
+  if (comp) return { role: 'client', companyId: comp.id, label: comp.nomeFantasia };
+  return null;
+};
+
+// Cliente enxerga apenas a própria empresa (dados filtrados para leitura).
+export const scopeDataForSession = (data: AppData, session: Session | null): AppData => {
+  if (!session || session.role !== 'client' || !session.companyId) return data;
+  const cid = session.companyId;
+  const partners = data.partners.filter(p => (p.companyIds || []).includes(cid));
+  const partnerIds = new Set(partners.map(p => p.id));
+  return {
+    ...data,
+    companies: data.companies.filter(c => c.id === cid),
+    partners,
+    bankAccounts: data.bankAccounts.filter(a =>
+      (a.ownerType === 'COMPANY' && a.ownerId === cid) ||
+      (a.ownerType === 'PARTNER' && partnerIds.has(a.ownerId))
+    ),
+    transactions: data.transactions.filter(t => t.companyId === cid),
+  };
 };
 
 export const calculateCompanyBalance = (companyId: string, transactions: Transaction[]): number => {
