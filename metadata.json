@@ -1,5 +1,6 @@
 {
   "name": "SócioCash - Gestão de Caixa Societário",
   "description": "Aplicativo para gestão de aportes de sócios, transferências intercompany e controle de saldos contábeis com relatórios detalhados.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": []
 }

@@ -88,10 +88,10 @@ const App: React.FC = () => {
               <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 shrink-0 rounded-xl bg-[#2B589A] flex items-center justify-center text-white text-sm font-bold shadow-md shadow-[#2B589A]/20">
-                    VB
+                    AD
                   </div>
                   <div className="overflow-hidden">
-                    <p className="text-sm font-bold text-slate-800 truncate">Valter Buarque</p>
+                    <p className="text-sm font-bold text-slate-800 truncate">Administrador</p>
                     <p className="text-[10px] text-slate-500 truncate">valter@jcbuarque.com.br</p>
                   </div>
                 </div>

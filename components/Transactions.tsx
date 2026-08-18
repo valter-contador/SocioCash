@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Plus, Filter, Search, ArrowUpCircle, ArrowDownCircle, Trash2, Calendar, X, CreditCard, ChevronRight } from 'lucide-react';
-import { AppData, Transaction, TransactionType } from '../types';
+import { AppData, Transaction, TransactionType, TransactionNature, NATURE_META, NATURE_ORDER } from '../types';
 import { formatCurrency } from '../dataService';
 
 interface TransactionsProps {
@@ -25,6 +25,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
     destinationAccountId: '',
     value: 0,
     type: TransactionType.CREDIT,
+    nature: TransactionNature.APORTE_CAPITAL,
     description: ''
   });
 
@@ -52,6 +53,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
       destinationAccountId: formData.destinationAccountId!,
       value: formData.value!,
       type: formData.type as TransactionType,
+      nature: formData.nature,
       description: formData.description || ''
     };
 
@@ -186,7 +188,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
                         tx.type === TransactionType.CREDIT ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'
                       }`}>
                         {tx.type === TransactionType.CREDIT ? <ArrowUpCircle size={14} /> : <ArrowDownCircle size={14} />}
-                        {tx.type === TransactionType.CREDIT ? 'Aporte' : 'Débito'}
+                        {tx.nature ? NATURE_META[tx.nature].label : (tx.type === TransactionType.CREDIT ? 'Aporte' : 'Débito')}
                       </div>
                     </td>
                     <td className="px-8 py-6">
@@ -269,13 +271,24 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Natureza Operacional *</label>
-                    <select 
-                      className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold" 
-                      value={formData.type} 
-                      onChange={e => setFormData({...formData, type: e.target.value as TransactionType})}
+                    <select
+                      className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold"
+                      value={formData.nature}
+                      onChange={e => {
+                        const nature = e.target.value as TransactionNature;
+                        setFormData({
+                          ...formData,
+                          nature,
+                          type: NATURE_META[nature].type,
+                          // Direção mudou: limpa as contas para revincular origem/destino corretos
+                          originAccountId: '',
+                          destinationAccountId: ''
+                        });
+                      }}
                     >
-                      <option value={TransactionType.CREDIT}>Aporte de Capital</option>
-                      <option value={TransactionType.DEBIT}>Devolução de Aporte</option>
+                      {NATURE_ORDER.map(n => (
+                        <option key={n} value={n}>{NATURE_META[n].label}</option>
+                      ))}
                     </select>
                   </div>
                   <div className="space-y-2">
