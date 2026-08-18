@@ -2,7 +2,8 @@
 import React, { useState, useMemo } from 'react';
 import { FileText, Download, Filter, Building2, Calendar, ChevronDown, ChevronUp, CheckCircle2, Info } from 'lucide-react';
 import { AppData, TransactionType } from '../types';
-import { formatCurrency } from '../dataService';
+import { formatCurrency, formatDateBR } from '../dataService';
+import { exportRelatorioPdf } from '../exportService';
 
 interface ReportsProps {
   data: AppData;
@@ -13,25 +14,31 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
+  const months = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+
   const reportData = useMemo(() => {
     if (!selectedCompanyId) return null;
 
-    const startDate = new Date(selectedYear, selectedMonth, 1);
-    const endDate = new Date(selectedYear, selectedMonth + 1, 0);
+    // Comparação por texto 'YYYY-MM-DD' (sem `new Date()`) — evita o bug de
+    // fuso horário que deslocava lançamentos para o dia/mês anterior.
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const periodStart = `${selectedYear}-${pad(selectedMonth + 1)}-01`;
+    const selectedYm = `${selectedYear}-${pad(selectedMonth + 1)}`;
 
-    const initialTransactions = data.transactions.filter(t => {
-      const d = new Date(t.date);
-      return t.companyId === selectedCompanyId && d.getTime() < startDate.getTime();
-    });
+    const initialTransactions = data.transactions.filter(t =>
+      t.companyId === selectedCompanyId && t.date < periodStart
+    );
 
     const initialBalance = initialTransactions.reduce((acc, t) => {
       return t.type === TransactionType.CREDIT ? acc + t.value : acc - t.value;
     }, 0);
 
-    const monthTransactions = data.transactions.filter(t => {
-      const d = new Date(t.date);
-      return t.companyId === selectedCompanyId && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
-    });
+    const monthTransactions = data.transactions.filter(t =>
+      t.companyId === selectedCompanyId && t.date.slice(0, 7) === selectedYm
+    );
 
     const totalCredits = monthTransactions
       .filter(t => t.type === TransactionType.CREDIT)
@@ -46,14 +53,31 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
       totalCredits,
       totalDebits,
       finalBalance: initialBalance + totalCredits - totalDebits,
-      transactions: monthTransactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      transactions: monthTransactions.sort((a, b) => a.date.localeCompare(b.date))
     };
   }, [data, selectedCompanyId, selectedMonth, selectedYear]);
 
-  const months = [
-    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-  ];
+  const handleExportPdf = () => {
+    if (!reportData || !selectedCompanyId) return;
+    const company = data.companies.find(c => c.id === selectedCompanyId);
+    if (!company) return;
+    exportRelatorioPdf({
+      companyFantasia: company.nomeFantasia,
+      companyRazao: company.razaoSocial,
+      periodo: `${months[selectedMonth]} ${selectedYear}`,
+      initialBalance: reportData.initialBalance,
+      totalCredits: reportData.totalCredits,
+      totalDebits: reportData.totalDebits,
+      finalBalance: reportData.finalBalance,
+      transactions: reportData.transactions.map(t => ({
+        date: t.date,
+        originario: data.partners.find(p => p.id === t.partnerId)?.name || 'CAIXA DIRETO',
+        description: t.description,
+        value: t.value,
+        isCredit: t.type === TransactionType.CREDIT
+      }))
+    });
+  };
 
   return (
     <div className="space-y-8 pb-24">
@@ -112,10 +136,10 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
               </select>
           </div>
         </div>
-        <button 
-          onClick={() => window.print()}
+        <button
+          onClick={handleExportPdf}
           className="w-full lg:w-auto bg-[#2B589A] hover:bg-[#1E3F6D] text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-[#2B589A]/20 disabled:opacity-30 transition-all font-black tracking-tight"
-          disabled={!selectedCompanyId}
+          disabled={!reportData}
         >
           <Download size={20} />
           Exportar PDF
@@ -180,7 +204,7 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
                 <tbody className="divide-y divide-slate-50">
                   {reportData.transactions.map(tx => (
                     <tr key={tx.id} className="text-sm group">
-                      <td className="py-6 px-4 text-slate-500 font-bold">{new Date(tx.date).toLocaleDateString('pt-BR')}</td>
+                      <td className="py-6 px-4 text-slate-500 font-bold">{formatDateBR(tx.date)}</td>
                       <td className="py-6 px-4 font-black text-slate-800">{data.partners.find(p => p.id === tx.partnerId)?.name || 'CAIXA DIRETO'}</td>
                       <td className="py-6 px-4 text-slate-500 font-medium italic group-hover:text-slate-800 transition-colors">"{tx.description || 'Sem observações'}"</td>
                       <td className={`py-6 px-4 text-right font-black tracking-tight ${tx.type === TransactionType.CREDIT ? 'text-emerald-600' : 'text-rose-500'}`}>

@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info, Building2, Filter, FileText, FileSpreadsheet, Handshake } from 'lucide-react';
 import { AppData, Transaction, TransactionType, TransactionNature, NATURE_ORDER, NATURE_META } from '../types';
-import { formatCurrency, IRRF_LUCROS_THRESHOLD, IRRF_LUCROS_RATE, irrfBaseFromNet, irrfLucrosFromNet } from '../dataService';
+import { formatCurrency, IRRF_LUCROS_THRESHOLD, IRRF_LUCROS_RATE, irrfBaseFromNet, irrfLucrosFromNet, parseDateParts, formatDateBR } from '../dataService';
 import { exportFechamentoPdf, exportFechamentoXlsx, FechamentoExport } from '../exportService';
 
 interface FechamentoProps {
@@ -16,17 +16,10 @@ const months = [
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
 ];
 
-// Datas são 'YYYY-MM-DD'. Interpretar via new Date(str) usa UTC e desloca o dia
-// no fuso local; portanto parseamos a partir do texto para evitar erro de mês/dia.
-const dateParts = (s: string) => {
-  const [y, m, d] = (s || '').split('-').map(Number);
-  return { y, m, d };
-};
-const fmtDate = (s: string) => {
-  const { y, m, d } = dateParts(s);
-  if (!y || !m || !d) return s;
-  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
-};
+// Datas 'YYYY-MM-DD' — usa os helpers compartilhados de dataService (evita o
+// bug de fuso de `new Date(str)`).
+const dateParts = parseDateParts;
+const fmtDate = formatDateBR;
 
 interface NatureGroup {
   nature: TransactionNature;

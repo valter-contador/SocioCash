@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Handshake, Plus, Trash2, X, AlertTriangle, Info, ArrowRight, Landmark, Percent, ShieldAlert, FileText, FileType2 } from 'lucide-react';
+import { Handshake, Plus, Trash2, Pencil, X, AlertTriangle, Info, ArrowRight, Landmark, Percent, ShieldAlert, FileText, FileType2, CalendarClock } from 'lucide-react';
 import { AppData, Mutuo, MutuoDirection, SocioTipo, TransactionNature } from '../types';
-import { formatCurrency, computeMutuo } from '../dataService';
+import { formatCurrency, computeMutuo, addMonthsToDateStr, formatDateBR } from '../dataService';
 import { exportMutuoContratoPdf, exportMutuoContratoDocx, MutuoContrato } from '../exportService';
+import CurrencyInput from './CurrencyInput';
 
 interface MutuosProps {
   data: AppData;
@@ -20,20 +21,23 @@ const emptyForm = () => ({
   socioTipo: 'PF' as SocioTipo,
   value: 0,
   releaseDate: today(),
+  firstInstallmentDate: '',
   dueDate: '',
   parcelas: 1,
   annualInterestPct: 0,
   observacao: '',
 });
 
-const fmtDate = (s: string) => {
-  const [y, m, d] = (s || '').split('-');
-  return (y && m && d) ? `${d}/${m}/${y}` : '—';
-};
+const fmtDate = (s: string) => (s ? formatDateBR(s) : '—');
+
+// Recalcula a data de vencimento final a partir da 1ª parcela + nº de parcelas.
+const computeDueDate = (firstInstallmentDate: string, parcelas: number): string =>
+  firstInstallmentDate ? (parcelas > 1 ? addMonthsToDateStr(firstInstallmentDate, parcelas - 1) : firstInstallmentDate) : '';
 
 const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
   const location = useLocation();
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm());
   const mutuos = data.mutuos || [];
 
@@ -41,6 +45,7 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
   useEffect(() => {
     const pf = (location.state as any)?.prefill;
     if (pf) {
+      setEditingId(null);
       setForm({ ...emptyForm(), companyId: pf.companyId || '', partnerId: pf.partnerId || '', value: pf.value || 0 });
       setIsAdding(true);
       window.history.replaceState({}, ''); // evita reabrir ao voltar
@@ -59,13 +64,40 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
         .reduce((s, t) => s + (t.nature === TransactionNature.EMPRESTIMO ? t.value : t.nature === TransactionNature.PAGTO_EMPRESTIMO ? -t.value : 0), 0)
     : 0;
 
-  const handleAdd = (e: React.FormEvent) => {
+  const closeForm = () => {
+    setIsAdding(false);
+    setEditingId(null);
+    setForm(emptyForm());
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSave) { alert('Preencha empresa, sócio, valor, data de vencimento e a taxa SELIC (juros).'); return; }
-    const novo: Mutuo = { id: crypto.randomUUID(), ...form };
-    onUpdate({ ...data, mutuos: [...mutuos, novo] });
-    setForm(emptyForm());
-    setIsAdding(false);
+    if (editingId) {
+      onUpdate({ ...data, mutuos: mutuos.map(m => m.id === editingId ? { ...m, ...form } : m) });
+    } else {
+      const novo: Mutuo = { id: crypto.randomUUID(), ...form };
+      onUpdate({ ...data, mutuos: [...mutuos, novo] });
+    }
+    closeForm();
+  };
+
+  const handleEditClick = (m: Mutuo) => {
+    setForm({
+      direction: m.direction,
+      companyId: m.companyId,
+      partnerId: m.partnerId,
+      socioTipo: m.socioTipo,
+      value: m.value,
+      releaseDate: m.releaseDate,
+      firstInstallmentDate: m.firstInstallmentDate || '',
+      dueDate: m.dueDate,
+      parcelas: m.parcelas,
+      annualInterestPct: m.annualInterestPct,
+      observacao: m.observacao || '',
+    });
+    setEditingId(m.id);
+    setIsAdding(true);
   };
 
   const handleDelete = (id: string) => {
@@ -119,7 +151,7 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
           <p className="text-sm text-slate-500 font-medium">Empréstimos formalizados entre sócio e empresa — com IOF e IRRF sobre juros</p>
         </div>
         <button
-          onClick={() => { setForm(emptyForm()); setIsAdding(true); }}
+          onClick={() => { closeForm(); setIsAdding(true); }}
           className="w-full sm:w-auto bg-[#2B589A] hover:bg-[#1E3F6D] text-white px-6 py-3 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-[#2B589A]/20 font-bold"
         >
           <Plus size={20} /> Novo Mútuo
@@ -141,10 +173,10 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
       {isAdding && (
         <div className="bg-white p-6 lg:p-8 rounded-3xl border-2 border-[#2B589A]/10 shadow-xl animate-in fade-in slide-in-from-top-4">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-bold text-slate-800">Novo Contrato de Mútuo</h3>
-            <button onClick={() => setIsAdding(false)} className="text-slate-400 hover:text-rose-500"><X size={20} /></button>
+            <h3 className="text-xl font-bold text-slate-800">{editingId ? 'Editar Contrato de Mútuo' : 'Novo Contrato de Mútuo'}</h3>
+            <button onClick={closeForm} className="text-slate-400 hover:text-rose-500"><X size={20} /></button>
           </div>
-          <form onSubmit={handleAdd} className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Campos */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div className="sm:col-span-2 space-y-1.5">
@@ -177,7 +209,7 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
               </div>
               <div className="space-y-1.5">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Valor (R$) *</label>
-                <input required type="number" step="0.01" className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold" value={form.value || ''} onChange={e => setForm({ ...form, value: Number(e.target.value) })} />
+                <CurrencyInput required className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold" value={form.value} onChange={v => setForm({ ...form, value: v })} />
                 {saldoDevedorPar > 0 && (
                   <button type="button" onClick={() => setForm({ ...form, value: saldoDevedorPar })} className="text-[11px] font-bold text-[#2B589A] hover:underline">
                     Saldo devedor atual: {formatCurrency(saldoDevedorPar)} — usar como valor
@@ -189,12 +221,51 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
                 <input required type="date" className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold" value={form.releaseDate} onChange={e => setForm({ ...form, releaseDate: e.target.value })} />
               </div>
               <div className="space-y-1.5">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data de Vencimento *</label>
-                <input required type="date" className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} />
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Vencimento da 1ª Parcela</label>
+                <input
+                  type="date"
+                  className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold"
+                  value={form.firstInstallmentDate}
+                  onChange={e => {
+                    const firstInstallmentDate = e.target.value;
+                    setForm({ ...form, firstInstallmentDate, dueDate: computeDueDate(firstInstallmentDate, form.parcelas) || form.dueDate });
+                  }}
+                />
+                <p className="text-[10px] text-slate-400 font-medium ml-1">Preenchendo esta data, o vencimento final é calculado automaticamente.</p>
               </div>
               <div className="space-y-1.5">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Parcelas</label>
-                <input type="number" min={1} className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold" value={form.parcelas} onChange={e => setForm({ ...form, parcelas: Math.max(1, Number(e.target.value)) })} />
+                <input
+                  type="number"
+                  min={1}
+                  className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold"
+                  value={form.parcelas}
+                  onChange={e => {
+                    const parcelas = Math.max(1, Number(e.target.value));
+                    setForm({ ...form, parcelas, dueDate: computeDueDate(form.firstInstallmentDate, parcelas) || form.dueDate });
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Vencimento Final (Última Parcela) *</label>
+                <input
+                  required
+                  type="date"
+                  readOnly={!!form.firstInstallmentDate}
+                  className={`w-full p-3.5 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold ${form.firstInstallmentDate ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 text-slate-900'}`}
+                  value={form.dueDate}
+                  onChange={e => setForm({ ...form, dueDate: e.target.value })}
+                />
+                <p className="text-[10px] text-slate-400 font-medium ml-1">
+                  {form.firstInstallmentDate ? 'Calculado: 1ª parcela + nº de parcelas.' : 'Ou informe diretamente, sem usar o cronograma de parcelas.'}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5"><CalendarClock size={12} /> Valor da Parcela (estimado)</label>
+                <div className="w-full p-3.5 bg-[#2B589A]/5 text-[#2B589A] border border-[#2B589A]/15 rounded-2xl font-black">
+                  {preview.installmentValue > 0 ? formatCurrency(preview.installmentValue) : '—'}
+                </div>
+                <p className="text-[10px] text-slate-400 font-medium ml-1">Amortização + juros, Tabela Price — estimativa operacional (não consta no contrato).</p>
               </div>
               <div className="space-y-1.5">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Taxa SELIC (% ao ano) *</label>
@@ -221,6 +292,7 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
                 <SimRow label={`IRRF s/ juros (${(preview.irrfAliquota * 100).toFixed(1)}%)`} value={formatCurrency(preview.irrfJuros)} strong />
                 <div className="pt-2 border-t border-slate-200" />
                 <SimRow label="Total a devolver (principal + juros)" value={formatCurrency(preview.totalComJuros)} strong />
+                <SimRow label={`Parcela estimada (${form.parcelas}x)`} value={preview.installmentValue > 0 ? formatCurrency(preview.installmentValue) : '—'} />
               </div>
               {preview.iofAplicavel && (
                 <p className="mt-3 text-[10px] text-slate-400 font-medium">IOF recolhido pela empresa via DARF até o dia 20 do mês seguinte.</p>
@@ -236,8 +308,8 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
             </div>
 
             <div className="lg:col-span-2 flex justify-end gap-3 pt-4 border-t border-slate-100">
-              <button type="button" onClick={() => setIsAdding(false)} className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl">Cancelar</button>
-              <button type="submit" disabled={!canSave} className="px-10 py-3 bg-[#2B589A] text-white rounded-2xl hover:bg-[#1E3F6D] shadow-lg shadow-[#2B589A]/20 font-bold disabled:opacity-30 disabled:cursor-not-allowed">Salvar Mútuo</button>
+              <button type="button" onClick={closeForm} className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl">Cancelar</button>
+              <button type="submit" disabled={!canSave} className="px-10 py-3 bg-[#2B589A] text-white rounded-2xl hover:bg-[#1E3F6D] shadow-lg shadow-[#2B589A]/20 font-bold disabled:opacity-30 disabled:cursor-not-allowed">{editingId ? 'Salvar Alterações' : 'Salvar Mútuo'}</button>
             </div>
           </form>
         </div>
@@ -274,12 +346,14 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
                     <button onClick={() => gerarContratoWord(m)} className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black tracking-tight hover:bg-emerald-700 shadow-lg shadow-emerald-600/20 transition-all">
                       <FileType2 size={16} /> Word (.docx)
                     </button>
+                    <button onClick={() => handleEditClick(m)} className="p-2 text-slate-300 hover:text-[#2B589A] hover:bg-[#2B589A]/5 rounded-xl transition-colors" title="Reabrir para edição"><Pencil size={18} /></button>
                     <button onClick={() => handleDelete(m.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={18} /></button>
                   </div>
                 </div>
 
                 <div className="p-6 lg:p-8 grid grid-cols-2 lg:grid-cols-4 gap-4">
                   <Metric label={`Juros (${m.annualInterestPct}% a.a.)`} value={formatCurrency(c.juros)} />
+                  <Metric label={`Parcela estimada (${m.parcelas}x)`} value={c.installmentValue > 0 ? formatCurrency(c.installmentValue) : '—'} />
                   <Metric label="IOF total" value={c.iofAplicavel ? formatCurrency(c.iof) : 'Não incide'} tone={c.iofAplicavel ? 'blue' : 'muted'} />
                   <Metric label={`IRRF s/ juros (${(c.irrfAliquota * 100).toFixed(1)}%)`} value={formatCurrency(c.irrfJuros)} tone="rose" />
                   <Metric label="Total a devolver" value={formatCurrency(c.totalComJuros)} tone="blue" />

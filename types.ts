@@ -110,7 +110,8 @@ export interface Mutuo {
   socioTipo: SocioTipo;         // PF (CPF) ou PJ (CNPJ) — afeta IOF diário
   value: number;                // valor do contrato
   releaseDate: string;          // data de liberação (YYYY-MM-DD)
-  dueDate: string;              // data de vencimento (YYYY-MM-DD)
+  firstInstallmentDate?: string; // data de vencimento da 1ª parcela (YYYY-MM-DD)
+  dueDate: string;              // data de vencimento final (YYYY-MM-DD) — calculada a partir de firstInstallmentDate + parcelas quando informada
   parcelas: number;             // nº de parcelas (1 = à vista no vencimento)
   annualInterestPct: number;    // taxa de juros % ao ano (0 = sem juros)
   observacao?: string;

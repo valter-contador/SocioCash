@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
-import { Plus, Filter, Search, ArrowUpCircle, ArrowDownCircle, Trash2, Calendar, X, CreditCard, ChevronRight } from 'lucide-react';
-import { AppData, Transaction, TransactionType, TransactionNature, NATURE_META, NATURE_ORDER } from '../types';
-import { formatCurrency } from '../dataService';
+import { Plus, Filter, Search, ArrowUpCircle, ArrowDownCircle, Trash2, Pencil, Calendar, X, CreditCard, ChevronRight, UserPlus } from 'lucide-react';
+import { AppData, Transaction, TransactionType, TransactionNature, NATURE_META, NATURE_ORDER, BankAccount, AccountType } from '../types';
+import { formatCurrency, formatDateBR } from '../dataService';
+import CurrencyInput from './CurrencyInput';
 
 interface TransactionsProps {
   data: AppData;
@@ -11,6 +12,7 @@ interface TransactionsProps {
 
 const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [filters, setFilters] = useState({
     companyId: '',
     partnerId: '',
@@ -21,7 +23,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
     date: new Date().toISOString().split('T')[0],
     partnerId: '',
     companyAccountId: '',   // conta corrente da empresa (deriva a empresa)
-    partnerAccountId: '',   // conta corrente do sócio
+    partnerAccountId: '',   // conta corrente do sócio (opcional — não é crítica para a contabilidade)
     value: 0,
     type: TransactionType.CREDIT,
     nature: TransactionNature.APORTE_CAPITAL,
@@ -29,19 +31,31 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
   };
   const [formData, setFormData] = useState(emptyForm);
 
+  // Popup de cadastro rápido de conta do sócio, aberto a partir do próprio lançamento.
+  const [isAddingSocioAccount, setIsAddingSocioAccount] = useState(false);
+  const [socioAccForm, setSocioAccForm] = useState({ bankName: '', agency: '', accountNumber: '', type: AccountType.CHECKING });
+
   const filteredTransactions = useMemo(() => {
     return data.transactions
       .filter(t => !filters.companyId || t.companyId === filters.companyId)
       .filter(t => !filters.partnerId || t.partnerId === filters.partnerId)
       .filter(t => !filters.nature || t.nature === filters.nature)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      .sort((a, b) => b.date.localeCompare(a.date));
   }, [data.transactions, filters]);
 
-  const handleAddTransaction = (e: React.FormEvent) => {
+  const closeModal = () => {
+    setIsAdding(false);
+    setEditingId(null);
+    setFormData({ ...emptyForm, date: new Date().toISOString().split('T')[0] });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const companyAccount = data.bankAccounts.find(a => a.id === formData.companyAccountId);
-    if (!formData.partnerId || !companyAccount || !formData.partnerAccountId || !formData.value || formData.value <= 0) {
-      alert('Selecione o sócio, as contas corrente (empresa e sócio) e um valor válido.');
+    // A conta do sócio NÃO é obrigatória: não é informação crítica para a
+    // contabilidade e não deve travar a confirmação do lançamento.
+    if (!formData.partnerId || !companyAccount || !formData.value || formData.value <= 0) {
+      alert('Selecione o sócio, a conta corrente da empresa e um valor válido.');
       return;
     }
 
@@ -53,8 +67,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
     const originAccountId = isCredit ? formData.partnerAccountId : formData.companyAccountId;
     const destinationAccountId = isCredit ? formData.companyAccountId : formData.partnerAccountId;
 
-    const newTx: Transaction = {
-      id: crypto.randomUUID(),
+    const txData = {
       date: formData.date,
       companyId,
       partnerId: formData.partnerId,
@@ -66,12 +79,32 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
       description: formData.description || ''
     };
 
-    onUpdate({
-      ...data,
-      transactions: [...data.transactions, newTx]
+    if (editingId) {
+      onUpdate({
+        ...data,
+        transactions: data.transactions.map(t => t.id === editingId ? { ...t, ...txData } : t)
+      });
+    } else {
+      const newTx: Transaction = { id: crypto.randomUUID(), ...txData };
+      onUpdate({ ...data, transactions: [...data.transactions, newTx] });
+    }
+    closeModal();
+  };
+
+  const handleEditClick = (tx: Transaction) => {
+    const isCredit = tx.type === TransactionType.CREDIT;
+    setFormData({
+      date: tx.date,
+      partnerId: tx.partnerId || '',
+      companyAccountId: isCredit ? tx.destinationAccountId : tx.originAccountId,
+      partnerAccountId: isCredit ? tx.originAccountId : tx.destinationAccountId,
+      value: tx.value,
+      type: tx.type,
+      nature: tx.nature || TransactionNature.APORTE_CAPITAL,
+      description: tx.description || ''
     });
-    setIsAdding(false);
-    setFormData({ ...emptyForm, date: new Date().toISOString().split('T')[0] });
+    setEditingId(tx.id);
+    setIsAdding(true);
   };
 
   const handleDeleteTransaction = (id: string) => {
@@ -81,6 +114,21 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
         transactions: data.transactions.filter(t => t.id !== id)
       });
     }
+  };
+
+  const handleAddSocioAccount = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.partnerId) return;
+    const newAcc: BankAccount = {
+      id: crypto.randomUUID(),
+      ownerId: formData.partnerId,
+      ownerType: 'PARTNER',
+      ...socioAccForm
+    };
+    onUpdate({ ...data, bankAccounts: [...data.bankAccounts, newAcc] });
+    setFormData(prev => ({ ...prev, partnerAccountId: newAcc.id }));
+    setSocioAccForm({ bankName: '', agency: '', accountNumber: '', type: AccountType.CHECKING });
+    setIsAddingSocioAccount(false);
   };
 
   // Contas correntes das empresas (todas) — a empresa é derivada da conta escolhida.
@@ -105,8 +153,8 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">Movimentações</h2>
           <p className="text-sm text-slate-500 font-medium">Histórico auditável de fluxos societários</p>
         </div>
-        <button 
-          onClick={() => setIsAdding(true)}
+        <button
+          onClick={() => { closeModal(); setIsAdding(true); }}
           className="w-full sm:w-auto bg-[#2B589A] hover:bg-[#1E3F6D] text-white px-8 py-3.5 rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-[#2B589A]/20 transition-all font-black tracking-tight"
         >
           <Plus size={20} />
@@ -181,7 +229,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
                 return (
                   <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors group">
                     <td className="px-8 py-6 text-xs font-bold text-slate-500 whitespace-nowrap">
-                      {new Date(tx.date).toLocaleDateString('pt-BR')}
+                      {formatDateBR(tx.date)}
                     </td>
                     <td className="px-8 py-6">
                       <div className={`flex items-center gap-2 text-[10px] font-black px-3 py-1.5 rounded-full w-fit uppercase tracking-widest ${
@@ -204,12 +252,21 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
                       {tx.type === TransactionType.CREDIT ? '+' : '-'} {formatCurrency(tx.value)}
                     </td>
                     <td className="px-8 py-6">
-                      <button 
-                        onClick={() => handleDeleteTransaction(tx.id)} 
-                        className="p-2 text-slate-200 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                        <button
+                          onClick={() => handleEditClick(tx)}
+                          className="p-2 text-slate-300 hover:text-[#2B589A] hover:bg-[#2B589A]/5 rounded-xl transition-all"
+                          title="Reabrir para edição"
+                        >
+                          <Pencil size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTransaction(tx.id)}
+                          className="p-2 text-slate-200 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -241,14 +298,14 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
             {/* Modal Header */}
             <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div>
-                <h3 className="text-2xl font-black text-slate-800 tracking-tight">Registo de Fluxo</h3>
+                <h3 className="text-2xl font-black text-slate-800 tracking-tight">{editingId ? 'Editar Lançamento' : 'Registo de Fluxo'}</h3>
                 <div className="flex items-center gap-2 mt-1">
                     <div className="w-2 h-2 rounded-full bg-[#00E676] animate-pulse"></div>
                     <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Protocolo de Capital JC Buarque</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsAdding(false)}
+              <button
+                onClick={closeModal}
                 className="p-3 text-slate-300 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-all"
               >
                 <X size={28} />
@@ -256,7 +313,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
             </div>
 
             {/* Modal Scrollable Content */}
-            <form onSubmit={handleAddTransaction} className="flex flex-col flex-1 overflow-hidden">
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
               <div className="flex-1 overflow-y-auto p-8 lg:p-10 space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-2">
@@ -294,7 +351,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
                       required
                       className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold"
                       value={formData.partnerId}
-                      onChange={e => setFormData({...formData, partnerId: e.target.value, partnerAccountId: ''})}
+                      onChange={e => { setFormData({...formData, partnerId: e.target.value, partnerAccountId: ''}); setIsAddingSocioAccount(false); }}
                     >
                       <option value="">Selecionar sócio(a)...</option>
                       {data.partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -315,19 +372,30 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Conta Corrente (Sócio) *</label>
-                    <select
-                      required
-                      disabled={!formData.partnerId}
-                      className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                      value={formData.partnerAccountId}
-                      onChange={e => setFormData({...formData, partnerAccountId: e.target.value})}
-                    >
-                      <option value="">{formData.partnerId ? 'Vincular conta do sócio...' : 'Selecione o sócio primeiro'}</option>
-                      {socioAccounts.map(acc => (
-                        <option key={acc.id} value={acc.id}>{acc.bankName} ({acc.accountNumber})</option>
-                      ))}
-                    </select>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Conta Corrente (Sócio)</label>
+                    <div className="flex gap-2">
+                      <select
+                        disabled={!formData.partnerId}
+                        className="flex-1 min-w-0 p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                        value={formData.partnerAccountId}
+                        onChange={e => setFormData({...formData, partnerAccountId: e.target.value})}
+                      >
+                        <option value="">{formData.partnerId ? 'Não informar / vincular conta...' : 'Selecione o sócio primeiro'}</option>
+                        {socioAccounts.map(acc => (
+                          <option key={acc.id} value={acc.id}>{acc.bankName} ({acc.accountNumber})</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={!formData.partnerId}
+                        onClick={() => setIsAddingSocioAccount(true)}
+                        title="Cadastrar nova conta do sócio"
+                        className="shrink-0 w-14 flex items-center justify-center bg-[#2B589A]/5 text-[#2B589A] border border-[#2B589A]/15 rounded-[1.25rem] hover:bg-[#2B589A]/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <UserPlus size={20} />
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-medium ml-1">Opcional — não bloqueia o lançamento se o sócio ainda não tiver conta cadastrada.</p>
                   </div>
                   <div className="md:col-span-2 space-y-3">
                     <label className="block text-[10px] font-black text-[#2B589A] uppercase tracking-[0.2em] ml-1">Valor da Operação (BRL) *</label>
@@ -335,14 +403,11 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
                       <div className="absolute inset-y-0 left-0 pl-6 flex items-center pointer-events-none">
                         <span className="text-2xl font-black text-slate-300 group-focus-within:text-[#2B589A] transition-colors">R$</span>
                       </div>
-                      <input 
-                        required 
-                        type="number" 
-                        step="0.01" 
-                        placeholder="0,00"
-                        className="w-full pl-20 p-6 bg-[#2B589A]/5 text-[#2B589A] border-2 border-[#2B589A]/10 rounded-[1.5rem] outline-none focus:ring-4 focus:ring-[#2B589A]/10 focus:border-[#2B589A] font-black text-3xl transition-all placeholder:text-slate-300" 
-                        value={formData.value || ''} 
-                        onChange={e => setFormData({...formData, value: Number(e.target.value)})} 
+                      <CurrencyInput
+                        required
+                        className="w-full pl-20 p-6 bg-[#2B589A]/5 text-[#2B589A] border-2 border-[#2B589A]/10 rounded-[1.5rem] outline-none focus:ring-4 focus:ring-[#2B589A]/10 focus:border-[#2B589A] font-black text-3xl transition-all placeholder:text-slate-300"
+                        value={formData.value}
+                        onChange={v => setFormData({...formData, value: v})}
                       />
                     </div>
                   </div>
@@ -361,20 +426,61 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
 
               {/* Modal Footer */}
               <div className="p-8 border-t border-slate-100 bg-white flex flex-col sm:flex-row gap-4">
-                <button 
-                  type="button" 
-                  onClick={() => setIsAdding(false)} 
+                <button
+                  type="button"
+                  onClick={closeModal}
                   className="w-full sm:flex-1 py-5 text-slate-400 font-bold hover:bg-slate-50 hover:text-slate-600 rounded-2xl transition-all order-2 sm:order-1"
                 >
                   Desistir
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="w-full sm:flex-1 py-5 bg-[#2B589A] text-white font-black rounded-2xl hover:bg-[#1E3F6D] shadow-2xl shadow-[#2B589A]/30 active:scale-95 transition-all flex items-center justify-center gap-2 order-1 sm:order-2"
                 >
-                  Confirmar Lançamento
+                  {editingId ? 'Salvar Alterações' : 'Confirmar Lançamento'}
                   <ChevronRight size={20} />
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Popup: Nova Conta do Sócio (cadastro rápido a partir do lançamento) */}
+      {isAddingSocioAccount && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[70] p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-slate-800">Nova Conta do Sócio</h3>
+              <button onClick={() => setIsAddingSocioAccount(false)} className="text-slate-400 hover:text-rose-500"><X size={20} /></button>
+            </div>
+            <form onSubmit={handleAddSocioAccount} className="space-y-5">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Banco *</label>
+                <input required type="text" className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none" value={socioAccForm.bankName} onChange={e => setSocioAccForm({...socioAccForm, bankName: e.target.value})} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Agência</label>
+                  <input type="text" className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none" value={socioAccForm.agency} onChange={e => setSocioAccForm({...socioAccForm, agency: e.target.value})} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Conta *</label>
+                  <input required type="text" className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none" value={socioAccForm.accountNumber} onChange={e => setSocioAccForm({...socioAccForm, accountNumber: e.target.value})} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Modalidade</label>
+                <select className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none" value={socioAccForm.type} onChange={e => setSocioAccForm({...socioAccForm, type: e.target.value as AccountType})}>
+                  <option value={AccountType.CHECKING}>Corrente</option>
+                  <option value={AccountType.SAVINGS}>Poupança</option>
+                  <option value={AccountType.INVESTMENT}>Investimento</option>
+                  <option value={AccountType.OTHER}>Outra</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-3 pt-6">
+                <button type="submit" className="w-full py-4 bg-[#2B589A] text-white rounded-2xl hover:bg-[#1E3F6D] shadow-lg shadow-[#2B589A]/20 font-black tracking-tight">Vincular Conta</button>
+                <button type="button" onClick={() => setIsAddingSocioAccount(false)} className="w-full py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl">Cancelar</button>
               </div>
             </form>
           </div>
