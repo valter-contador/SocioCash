@@ -60,6 +60,8 @@ export interface Company {
   cnpj: string;
   tipo: string; // LTDA, SLU, etc.
   clientPassword?: string; // Senha de acesso do cliente (por empresa)
+  endereco?: string;       // Endereço completo (usado no contrato de mútuo)
+  foroComarca?: string;    // Comarca do foro (usado no contrato de mútuo)
 }
 
 // Controle de acesso GLOBAL (equipe JC Buarque). Observação: app sem backend —
@@ -75,6 +77,7 @@ export interface Partner {
   cpf: string;
   participation: number; // Percentage
   companyIds: string[];
+  endereco?: string;     // Endereço completo (usado no contrato de mútuo)
 }
 
 export interface Transaction {

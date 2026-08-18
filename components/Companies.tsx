@@ -19,7 +19,9 @@ const Companies: React.FC<CompaniesProps> = ({ data, onUpdate, role }) => {
     nomeFantasia: '',
     cnpj: '',
     tipo: 'LTDA',
-    clientPassword: ''
+    clientPassword: '',
+    endereco: '',
+    foroComarca: ''
   });
 
   const access = data.access || {};
@@ -47,7 +49,7 @@ const Companies: React.FC<CompaniesProps> = ({ data, onUpdate, role }) => {
       ...data,
       companies: [...data.companies, newCompany]
     });
-    setFormData({ razaoSocial: '', nomeFantasia: '', cnpj: '', tipo: 'LTDA', clientPassword: '' });
+    setFormData({ razaoSocial: '', nomeFantasia: '', cnpj: '', tipo: 'LTDA', clientPassword: '', endereco: '', foroComarca: '' });
     setIsAdding(false);
   };
 
@@ -200,6 +202,26 @@ const Companies: React.FC<CompaniesProps> = ({ data, onUpdate, role }) => {
               </select>
             </div>
             <div className="md:col-span-2 space-y-1.5">
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Endereço (para o contrato de mútuo)</label>
+              <input
+                type="text"
+                placeholder="Rua, nº, bairro, cidade/UF, CEP"
+                className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] focus:border-transparent outline-none transition-all"
+                value={formData.endereco}
+                onChange={e => setFormData({...formData, endereco: e.target.value})}
+              />
+            </div>
+            <div className="md:col-span-2 space-y-1.5">
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Comarca do Foro</label>
+              <input
+                type="text"
+                placeholder="Ex.: Recife/PE"
+                className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] focus:border-transparent outline-none transition-all"
+                value={formData.foroComarca}
+                onChange={e => setFormData({...formData, foroComarca: e.target.value})}
+              />
+            </div>
+            <div className="md:col-span-2 space-y-1.5">
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5"><KeyRound size={12} className="text-[#2B589A]" /> Senha de Acesso do Cliente</label>
               <input
                 type={showPasswords ? 'text' : 'password'}
@@ -281,6 +303,25 @@ const Companies: React.FC<CompaniesProps> = ({ data, onUpdate, role }) => {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Dados para o contrato de mútuo */}
+              <div className="border-t border-slate-100 pt-6 mt-6 space-y-3">
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-[0.15em]">Dados para Contrato</h4>
+                <input
+                  type="text"
+                  placeholder="Endereço (rua, nº, cidade/UF, CEP)"
+                  className="w-full p-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none text-sm"
+                  value={company.endereco || ''}
+                  onChange={e => updateCompany(company.id, { endereco: e.target.value })}
+                />
+                <input
+                  type="text"
+                  placeholder="Comarca do foro (ex.: Recife/PE)"
+                  className="w-full p-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none text-sm"
+                  value={company.foroComarca || ''}
+                  onChange={e => updateCompany(company.id, { foroComarca: e.target.value })}
+                />
               </div>
 
               {/* Senha de acesso do cliente (por empresa) */}

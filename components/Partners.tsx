@@ -16,8 +16,13 @@ const Partners: React.FC<PartnersProps> = ({ data, onUpdate }) => {
     name: '',
     cpf: '',
     participation: 0,
-    companyIds: [] as string[]
+    companyIds: [] as string[],
+    endereco: ''
   });
+
+  const updatePartner = (id: string, patch: Partial<Partner>) => {
+    onUpdate({ ...data, partners: data.partners.map(p => p.id === id ? { ...p, ...patch } : p) });
+  };
 
   const [accFormData, setAccFormData] = useState({
     bankName: '',
@@ -36,7 +41,7 @@ const Partners: React.FC<PartnersProps> = ({ data, onUpdate }) => {
       ...data,
       partners: [...data.partners, newPartner]
     });
-    setFormData({ name: '', cpf: '', participation: 0, companyIds: [] });
+    setFormData({ name: '', cpf: '', participation: 0, companyIds: [], endereco: '' });
     setIsAdding(false);
   };
 
@@ -126,6 +131,10 @@ const Partners: React.FC<PartnersProps> = ({ data, onUpdate }) => {
                   <Percent size={14} className="absolute right-4 top-4 text-slate-400" />
                 </div>
               </div>
+              <div className="md:col-span-2 space-y-1.5">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Endereço (para o contrato de mútuo)</label>
+                <input type="text" placeholder="Rua, nº, bairro, cidade/UF, CEP" className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none" value={formData.endereco} onChange={e => setFormData({...formData, endereco: e.target.value})} />
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -195,6 +204,17 @@ const Partners: React.FC<PartnersProps> = ({ data, onUpdate }) => {
                   })}
                   {partner.companyIds.length === 0 && <span className="text-[10px] text-slate-300 italic font-medium">Nenhuma empresa vinculada</span>}
                 </div>
+              </div>
+
+              <div className="mt-6">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Endereço (contrato)</p>
+                <input
+                  type="text"
+                  placeholder="Rua, nº, cidade/UF, CEP"
+                  className="w-full p-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none text-sm"
+                  value={partner.endereco || ''}
+                  onChange={e => updatePartner(partner.id, { endereco: e.target.value })}
+                />
               </div>
             </div>
 
