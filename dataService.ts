@@ -100,6 +100,15 @@ export const calculatePartnerBalance = (partnerId: string, transactions: Transac
 export const IRRF_LUCROS_THRESHOLD = 50000;
 export const IRRF_LUCROS_RATE = 0.10;
 
+// O valor de lucro informado é LÍQUIDO. A base de cálculo do IRRF é obtida
+// pelo "gross-up": base = líquido / (1 - alíquota)  (ex.: 60.000 / 0,9 = 66.666,67).
+// O IRRF de 10% incide sobre essa base.
+export const irrfBaseFromNet = (netLucros: number): number =>
+  netLucros > 0 ? netLucros / (1 - IRRF_LUCROS_RATE) : 0;
+
+export const irrfLucrosFromNet = (netLucros: number): number =>
+  netLucros > IRRF_LUCROS_THRESHOLD ? irrfBaseFromNet(netLucros) * IRRF_LUCROS_RATE : 0;
+
 export const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',

@@ -22,6 +22,7 @@ export interface ExportExtract {
   totalEntradas: number;
   totalSaidas: number;
   lucros: number;
+  irrfBase: number;
   irrf: number;
 }
 export interface FechamentoExport {
@@ -68,7 +69,8 @@ export const exportFechamentoXlsx = (d: FechamentoExport) => {
     });
     rows.push(['', '', 'TOTAL ENTRADAS', ext.totalEntradas, '']);
     rows.push(['', '', 'TOTAL SAÍDAS', '', ext.totalSaidas]);
-    rows.push(['', '', 'Retirada de Lucros no mês', ext.lucros, '']);
+    rows.push(['', '', 'Retirada de Lucros no mês (líquido)', ext.lucros, '']);
+    rows.push(['', '', 'Base de Cálculo IRRF (+10%)', ext.irrfBase, '']);
     rows.push(['', '', `IRRF previsto (${d.irrfRatePct}%)`, ext.irrf > 0 ? ext.irrf : 'Isento', '']);
     rows.push([]);
   });
@@ -79,7 +81,15 @@ export const exportFechamentoXlsx = (d: FechamentoExport) => {
   rows.push(['IRRF Previsto Total', d.totalIrrf]);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 26 }, { wch: 16 }, { wch: 16 }];
+  ws['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 30 }, { wch: 18 }, { wch: 18 }];
+  // Formata todos os valores numéricos com 2 casas (centavos).
+  const range = XLSX.utils.decode_range(ws['!ref'] as string);
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+      if (cell && cell.t === 'n') cell.z = '#,##0.00';
+    }
+  }
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Fechamento');
   XLSX.writeFile(wb, `fechamento-${slug(d.companyFantasia)}-${slug(d.periodo)}.xlsx`);
@@ -123,7 +133,7 @@ export const exportFechamentoPdf = (d: FechamentoExport) => {
       foot: [
         [{ content: 'Total Entradas', colSpan: 3, styles: { halign: 'right' } }, formatCurrency(ext.totalEntradas), ''],
         [{ content: 'Total Saídas', colSpan: 3, styles: { halign: 'right' } }, '', formatCurrency(ext.totalSaidas)],
-        [{ content: `Retirada de Lucros: ${formatCurrency(ext.lucros)}  |  IRRF (${d.irrfRatePct}%): ${ext.irrf > 0 ? formatCurrency(ext.irrf) : 'Isento (< ' + formatCurrency(d.irrfThreshold) + ')'}`, colSpan: 5, styles: { halign: 'left', textColor: ext.irrf > 0 ? [220, 38, 38] : [100, 116, 139], fontStyle: 'bold' } }]
+        [{ content: `Retirada de Lucros (líquido): ${formatCurrency(ext.lucros)}   |   Base de Cálculo IRRF (+10%): ${formatCurrency(ext.irrfBase)}   |   IRRF (${d.irrfRatePct}%): ${ext.irrf > 0 ? formatCurrency(ext.irrf) : 'Isento (< ' + formatCurrency(d.irrfThreshold) + ')'}`, colSpan: 5, styles: { halign: 'left', textColor: ext.irrf > 0 ? [220, 38, 38] : [100, 116, 139], fontStyle: 'bold' } }]
       ],
       styles: { fontSize: 8, cellPadding: 4 },
       headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85] },
