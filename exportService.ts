@@ -169,8 +169,11 @@ export interface MutuoContrato {
   empresaRazao: string;
   empresaFantasia: string;
   empresaCnpj: string;
+  empresaEndereco?: string;
+  foroComarca?: string;
   socioNome: string;
   socioCpf: string;
+  socioEndereco?: string;
   valor: number;
   releaseDate: string;
   dueDate: string;
@@ -215,9 +218,9 @@ export const exportMutuoContratoPdf = (m: MutuoContrato) => {
 
   // Papéis (mutuante = quem empresta)
   const empresaEhMutuante = m.direction === 'EMPRESA_PARA_SOCIO';
-  const empresaQualif = `${m.empresaRazao}, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº ${m.empresaCnpj || '____________________'}, com sede em ____________________ (endereço)`;
+  const empresaQualif = `${m.empresaRazao}, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº ${m.empresaCnpj || '____________________'}, com sede em ${m.empresaEndereco || '____________________'}`;
   const docLabelSocio = m.socioTipo === 'PF' ? 'CPF' : 'CNPJ';
-  const socioQualif = `${m.socioNome}, ${m.socioTipo === 'PF' ? 'pessoa física' : 'pessoa jurídica'}, inscrito(a) no ${docLabelSocio} sob o nº ${m.socioCpf || '____________________'}, residente/domiciliado(a) em ____________________`;
+  const socioQualif = `${m.socioNome}, ${m.socioTipo === 'PF' ? 'pessoa física' : 'pessoa jurídica'}, inscrito(a) no ${docLabelSocio} sob o nº ${m.socioCpf || '____________________'}, residente/domiciliado(a) em ${m.socioEndereco || '____________________'}`;
   const mutuante = empresaEhMutuante ? empresaQualif : socioQualif;
   const mutuario = empresaEhMutuante ? socioQualif : empresaQualif;
 
@@ -267,12 +270,12 @@ export const exportMutuoContratoPdf = (m: MutuoContrato) => {
   para(`Ocorrerá o vencimento antecipado da dívida, independentemente de aviso ou notificação, na hipótese de inadimplemento de qualquer obrigação aqui prevista, observada a legislação aplicável.`);
 
   heading('CLÁUSULA 6ª — DO FORO');
-  para(`Fica eleito o foro da comarca de ____________________ para dirimir quaisquer controvérsias oriundas do presente contrato.`);
+  para(`Fica eleito o foro da comarca de ${m.foroComarca || '____________________'} para dirimir quaisquer controvérsias oriundas do presente contrato.`);
 
   if (m.observacao) { heading('OBSERVAÇÕES'); para(m.observacao); }
 
   para(`E, por estarem assim justas e contratadas, as partes assinam o presente instrumento em 2 (duas) vias de igual teor e forma, na presença das testemunhas abaixo.`, 16);
-  para(`____________________, ${dataExtenso()}.`, 24);
+  para(`${m.foroComarca || '____________________'}, ${dataExtenso()}.`, 24);
 
   const assinatura = (rotulo: string) => {
     ensure(46);

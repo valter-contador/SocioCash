@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Handshake, Plus, Trash2, X, AlertTriangle, Info, ArrowRight, Landmark, Percent, ShieldAlert, FileText } from 'lucide-react';
-import { AppData, Mutuo, MutuoDirection, SocioTipo } from '../types';
+import { AppData, Mutuo, MutuoDirection, SocioTipo, TransactionNature } from '../types';
 import { formatCurrency, computeMutuo } from '../dataService';
 import { exportMutuoContratoPdf } from '../exportService';
 
@@ -39,6 +39,13 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
   const preview = computeMutuo({ id: 'preview', ...form });
   const canSave = !!form.companyId && !!form.partnerId && form.value > 0 && !!form.dueDate;
 
+  // Saldo devedor atual do par (Empréstimo − Pagto Empréstimo), vindo dos lançamentos.
+  const saldoDevedorPar = (form.companyId && form.partnerId)
+    ? data.transactions
+        .filter(t => t.companyId === form.companyId && t.partnerId === form.partnerId)
+        .reduce((s, t) => s + (t.nature === TransactionNature.EMPRESTIMO ? t.value : t.nature === TransactionNature.PAGTO_EMPRESTIMO ? -t.value : 0), 0)
+    : 0;
+
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSave) { alert('Preencha empresa, sócio, valor e data de vencimento.'); return; }
@@ -68,8 +75,11 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
       empresaRazao: company.razaoSocial,
       empresaFantasia: company.nomeFantasia,
       empresaCnpj: company.cnpj,
+      empresaEndereco: company.endereco,
+      foroComarca: company.foroComarca,
       socioNome: partner.name,
       socioCpf: partner.cpf,
+      socioEndereco: partner.endereco,
       valor: m.value,
       releaseDate: m.releaseDate,
       dueDate: m.dueDate,
@@ -153,6 +163,11 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
               <div className="space-y-1.5">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Valor (R$) *</label>
                 <input required type="number" step="0.01" className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold" value={form.value || ''} onChange={e => setForm({ ...form, value: Number(e.target.value) })} />
+                {saldoDevedorPar > 0 && (
+                  <button type="button" onClick={() => setForm({ ...form, value: saldoDevedorPar })} className="text-[11px] font-bold text-[#2B589A] hover:underline">
+                    Saldo devedor atual: {formatCurrency(saldoDevedorPar)} — usar como valor
+                  </button>
+                )}
               </div>
               <div className="space-y-1.5">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data de Liberação *</label>
