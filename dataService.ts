@@ -135,6 +135,48 @@ export const diasEntre = (inicio: string, fim: string): number => {
   return Math.max(0, Math.round((b - a) / 86400000));
 };
 
+// ---------- Datas 'YYYY-MM-DD' (evita o bug de fuso de new Date(str)) ----------
+// new Date('YYYY-MM-DD') é interpretado como UTC; ao exibir em horário local
+// (ex.: Brasil, UTC-3) o dia pode "voltar" um dia. Por isso toda leitura/exibição
+// de data de string deve usar estes helpers em vez de `new Date(str)`.
+export const parseDateParts = (s: string): { y: number; m: number; d: number } => {
+  const [y, m, d] = (s || '').split('-').map(Number);
+  return { y, m, d };
+};
+
+export const formatDateBR = (s: string): string => {
+  const { y, m, d } = parseDateParts(s);
+  if (!y || !m || !d) return s || '';
+  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+};
+
+// Soma meses a uma data 'YYYY-MM-DD', preservando o dia quando possível
+// (ajusta para o último dia do mês de destino se o dia não existir —
+// ex.: 31/01 + 1 mês -> 28/02 ou 29/02).
+export const addMonthsToDateStr = (dateStr: string, months: number): string => {
+  const { y, m, d } = parseDateParts(dateStr);
+  if (!y || !m || !d) return '';
+  const total = (m - 1) + months;
+  const targetYear = y + Math.floor(total / 12);
+  const targetMonth = ((total % 12) + 12) % 12; // 0-11
+  const lastDayOfTargetMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const day = Math.min(d, lastDayOfTargetMonth);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${targetYear}-${pad(targetMonth + 1)}-${pad(day)}`;
+};
+
+// Valor da parcela (amortização + juros) pela Tabela Price, usando a taxa
+// mensal derivada linearmente da taxa SELIC anual informada (juros/12).
+// Estimativa operacional para acompanhamento do mútuo — não é usada nas
+// cláusulas do contrato, que seguem juros simples pro rata die sobre o total.
+export const computeInstallmentValue = (value: number, annualInterestPct: number, parcelas: number): number => {
+  const n = Math.max(1, Math.round(parcelas || 1));
+  if (value <= 0) return 0;
+  const monthlyRate = (annualInterestPct || 0) / 100 / 12;
+  if (monthlyRate <= 0) return value / n;
+  return (value * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -n));
+};
+
 export interface MutuoCalculo {
   dias: number;
   juros: number;
@@ -144,8 +186,9 @@ export interface MutuoCalculo {
   iofAplicavel: boolean;
   irrfAliquota: number;
   irrfJuros: number;
-  totalComJuros: number;   // principal + juros
-  alertaSemJuros: boolean; // empresa -> sócio sem juros (risco de distribuição disfarçada)
+  totalComJuros: number;    // principal + juros
+  installmentValue: number; // valor estimado da parcela (amortização + juros)
+  alertaSemJuros: boolean;  // empresa -> sócio sem juros (risco de distribuição disfarçada)
 }
 
 export const computeMutuo = (m: Mutuo): MutuoCalculo => {
@@ -171,6 +214,7 @@ export const computeMutuo = (m: Mutuo): MutuoCalculo => {
     irrfAliquota,
     irrfJuros,
     totalComJuros: m.value + juros,
+    installmentValue: computeInstallmentValue(m.value, m.annualInterestPct, m.parcelas),
     alertaSemJuros: iofAplicavel && m.annualInterestPct <= 0,
   };
 };
