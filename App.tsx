@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Building2, 
-  Users, 
+import { HashRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
+import {
+  LayoutDashboard,
+  Building2,
+  Users,
   ArrowRightLeft,
   FileText,
   Wallet,
@@ -13,19 +13,46 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  MessageSquare
+  MessageSquare,
+  LogOut
 } from 'lucide-react';
-import { AppData } from './types';
-import { loadData, saveData } from './dataService';
+import { AppData, Session, Role } from './types';
+import { loadData, saveData, loadSession, saveSession, scopeDataForSession } from './dataService';
 import Dashboard from './components/Dashboard';
 import Companies from './components/Companies';
 import Partners from './components/Partners';
 import Transactions from './components/Transactions';
 import Reports from './components/Reports';
 import Fechamento from './components/Fechamento';
+import Login from './components/Login';
+
+const ROLE_LABEL: Record<Role, string> = {
+  admin: 'Administrador',
+  analyst: 'Analista Contábil',
+  client: 'Cliente',
+};
+
+interface NavDef { to: string; label: string; roles: Role[]; }
+const NAV: NavDef[] = [
+  { to: '/', label: 'Dashboard', roles: ['admin', 'analyst', 'client'] },
+  { to: '/empresas', label: 'Empresas', roles: ['admin', 'analyst'] },
+  { to: '/socios', label: 'Sócios', roles: ['admin', 'analyst'] },
+  { to: '/transacoes', label: 'Movimentações', roles: ['admin', 'analyst'] },
+  { to: '/fechamento', label: 'Fechamento', roles: ['admin', 'analyst', 'client'] },
+  { to: '/relatorios', label: 'Relatórios', roles: ['admin', 'analyst', 'client'] },
+];
+const NAV_ICON: Record<string, React.ReactNode> = {
+  '/': <LayoutDashboard size={20} />,
+  '/empresas': <Building2 size={20} />,
+  '/socios': <Users size={20} />,
+  '/transacoes': <ArrowRightLeft size={20} />,
+  '/fechamento': <CalendarClock size={20} />,
+  '/relatorios': <FileText size={20} />,
+};
 
 const App: React.FC = () => {
   const [data, setData] = useState<AppData>(loadData());
+  const [session, setSession] = useState<Session | null>(loadSession());
   const [isSidebarOpen, setSidebarOpen] = useState(window.innerWidth > 1024);
 
   useEffect(() => {
@@ -36,7 +63,20 @@ const App: React.FC = () => {
     setData(newData);
   };
 
+  const handleLogin = (s: Session) => { saveSession(s); setSession(s); };
+  const handleLogout = () => { saveSession(null); setSession(null); };
+
   const toggleSidebar = () => setSidebarOpen(!isSidebarOpen);
+
+  // Sem sessão → tela de login (usa as senhas cadastradas).
+  if (!session) {
+    return <Login data={data} onLogin={handleLogin} />;
+  }
+
+  const role = session.role;
+  const canManage = role === 'admin' || role === 'analyst';
+  const scopedData = scopeDataForSession(data, session); // cliente vê só a própria empresa
+  const navItems = NAV.filter(n => n.roles.includes(role));
 
   return (
     <HashRouter>
@@ -79,28 +119,32 @@ const App: React.FC = () => {
             </div>
 
             <nav className="flex-1 mt-2 px-4 space-y-1.5 overflow-y-auto">
-              <SidebarItem to="/" icon={<LayoutDashboard size={20} />} label="Dashboard" onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
-              <SidebarItem to="/empresas" icon={<Building2 size={20} />} label="Empresas" onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
-              <SidebarItem to="/socios" icon={<Users size={20} />} label="Sócios" onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
-              <SidebarItem to="/transacoes" icon={<ArrowRightLeft size={20} />} label="Movimentações" onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
-              <SidebarItem to="/fechamento" icon={<CalendarClock size={20} />} label="Fechamento" onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
-              <SidebarItem to="/relatorios" icon={<FileText size={20} />} label="Relatórios" onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
+              {navItems.map(n => (
+                <SidebarItem key={n.to} to={n.to} icon={NAV_ICON[n.to]} label={n.label} onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
+              ))}
             </nav>
 
             <div className="p-6 border-t border-slate-100 bg-slate-50/80">
               <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 shrink-0 rounded-xl bg-[#2B589A] flex items-center justify-center text-white text-sm font-bold shadow-md shadow-[#2B589A]/20">
-                    AD
+                    {session.label.slice(0, 2).toUpperCase()}
                   </div>
                   <div className="overflow-hidden">
-                    <p className="text-sm font-bold text-slate-800 truncate">Administrador</p>
-                    <p className="text-[10px] text-slate-500 truncate">valter@jcbuarque.com.br</p>
+                    <p className="text-sm font-bold text-slate-800 truncate">{session.label}</p>
+                    <p className="text-[10px] text-slate-500 truncate uppercase tracking-wider font-bold">Perfil: {ROLE_LABEL[role]}</p>
                   </div>
                 </div>
-                <a 
-                  href="https://wa.me/5581992893801" 
-                  target="_blank" 
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 px-3 py-2 bg-rose-50 text-rose-600 rounded-lg text-xs font-bold hover:bg-rose-100 transition-colors"
+                >
+                  <LogOut size={14} />
+                  Sair
+                </button>
+                <a
+                  href="https://wa.me/5581992893801"
+                  target="_blank"
                   rel="noreferrer"
                   className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 transition-colors"
                 >
@@ -143,12 +187,13 @@ const App: React.FC = () => {
           <main className="flex-1 overflow-y-auto bg-slate-50 relative">
             <div className="p-4 lg:p-8 max-w-7xl mx-auto w-full">
               <Routes>
-                <Route path="/" element={<Dashboard data={data} />} />
-                <Route path="/empresas" element={<Companies data={data} onUpdate={updateData} />} />
-                <Route path="/socios" element={<Partners data={data} onUpdate={updateData} />} />
-                <Route path="/transacoes" element={<Transactions data={data} onUpdate={updateData} />} />
-                <Route path="/fechamento" element={<Fechamento data={data} />} />
-                <Route path="/relatorios" element={<Reports data={data} />} />
+                <Route path="/" element={<Dashboard data={scopedData} />} />
+                {canManage && <Route path="/empresas" element={<Companies data={data} onUpdate={updateData} role={role} />} />}
+                {canManage && <Route path="/socios" element={<Partners data={data} onUpdate={updateData} />} />}
+                {canManage && <Route path="/transacoes" element={<Transactions data={data} onUpdate={updateData} />} />}
+                <Route path="/fechamento" element={<Fechamento data={scopedData} />} />
+                <Route path="/relatorios" element={<Reports data={scopedData} />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </div>
             
