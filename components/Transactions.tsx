@@ -14,7 +14,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
   const [filters, setFilters] = useState({
     companyId: '',
     partnerId: '',
-    type: ''
+    nature: ''
   });
 
   const [formData, setFormData] = useState<Partial<Transaction>>({
@@ -33,7 +33,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
     return data.transactions
       .filter(t => !filters.companyId || t.companyId === filters.companyId)
       .filter(t => !filters.partnerId || t.partnerId === filters.partnerId)
-      .filter(t => !filters.type || t.type === filters.type)
+      .filter(t => !filters.nature || t.nature === filters.nature)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [data.transactions, filters]);
 
@@ -141,18 +141,19 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
         </div>
         <div className="min-w-[140px] space-y-1.5">
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Natureza</label>
-          <select 
+          <select
             className="w-full p-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold"
-            value={filters.type}
-            onChange={e => setFilters({...filters, type: e.target.value})}
+            value={filters.nature}
+            onChange={e => setFilters({...filters, nature: e.target.value})}
           >
             <option value="">Todas</option>
-            <option value={TransactionType.CREDIT}>Aporte (Crédito)</option>
-            <option value={TransactionType.DEBIT}>Retirada (Débito)</option>
+            {NATURE_ORDER.map(n => (
+              <option key={n} value={n}>{NATURE_META[n].label}</option>
+            ))}
           </select>
         </div>
         <button 
-          onClick={() => setFilters({ companyId: '', partnerId: '', type: '' })}
+          onClick={() => setFilters({ companyId: '', partnerId: '', nature: '' })}
           className="p-3 bg-slate-50 text-slate-400 hover:text-rose-500 hover:bg-rose-50 border border-slate-200 rounded-2xl transition-all"
           title="Resetar Filtros"
         >
