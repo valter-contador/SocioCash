@@ -261,7 +261,7 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
                 </p>
               </div>
               <div className="space-y-1.5">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5"><CalendarClock size={12} /> Valor da Parcela (estimado)</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5"><CalendarClock size={12} /> Valor da Parcela (calculado)</label>
                 <div className="w-full p-3.5 bg-[#2B589A]/5 text-[#2B589A] border border-[#2B589A]/15 rounded-2xl font-black">
                   {preview.installmentValue > 0 ? formatCurrency(preview.installmentValue) : '—'}
                 </div>
@@ -292,7 +292,7 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
                 <SimRow label={`IRRF s/ juros (${(preview.irrfAliquota * 100).toFixed(1)}%)`} value={formatCurrency(preview.irrfJuros)} strong />
                 <div className="pt-2 border-t border-slate-200" />
                 <SimRow label="Total a devolver (principal + juros)" value={formatCurrency(preview.totalComJuros)} strong />
-                <SimRow label={`Parcela estimada (${form.parcelas}x)`} value={preview.installmentValue > 0 ? formatCurrency(preview.installmentValue) : '—'} />
+                <SimRow label={`Parcela calculada (${form.parcelas}x)`} value={preview.installmentValue > 0 ? formatCurrency(preview.installmentValue) : '—'} />
               </div>
               {preview.iofAplicavel && (
                 <p className="mt-3 text-[10px] text-slate-400 font-medium">IOF recolhido pela empresa via DARF até o dia 20 do mês seguinte.</p>
@@ -353,14 +353,19 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
 
                 <div className="p-6 lg:p-8 grid grid-cols-2 lg:grid-cols-4 gap-4">
                   <Metric label={`Juros (${m.annualInterestPct}% a.a.)`} value={formatCurrency(c.juros)} />
-                  <Metric label={`Parcela estimada (${m.parcelas}x)`} value={c.installmentValue > 0 ? formatCurrency(c.installmentValue) : '—'} />
+                  <Metric label={`Parcela calculada (${m.parcelas}x)`} value={c.installmentValue > 0 ? formatCurrency(c.installmentValue) : '—'} />
                   <Metric label="IOF total" value={c.iofAplicavel ? formatCurrency(c.iof) : 'Não incide'} tone={c.iofAplicavel ? 'blue' : 'muted'} />
                   <Metric label={`IRRF s/ juros (${(c.irrfAliquota * 100).toFixed(1)}%)`} value={formatCurrency(c.irrfJuros)} tone="rose" />
                   <Metric label="Total a devolver" value={formatCurrency(c.totalComJuros)} tone="blue" />
                 </div>
 
-                {(c.iofAplicavel || c.alertaSemJuros || m.observacao) && (
+                {(c.iofAplicavel || c.installmentValue > 0 || c.alertaSemJuros || m.observacao) && (
                   <div className="px-6 lg:px-8 pb-6 lg:pb-8 space-y-2">
+                    {c.installmentValue > 0 && (
+                      <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
+                        <CalendarClock size={12} className="text-[#2B589A]" /> Parcela calculada = amortização {formatCurrency(c.installmentAmortizacao)} + juros {formatCurrency(c.installmentJuros)} (1ª parcela) — dos quais {formatCurrency(c.installmentIrrf)} de IRRF retido na fonte sobre os juros.
+                      </p>
+                    )}
                     {c.iofAplicavel && (
                       <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
                         <Landmark size={12} className="text-[#2B589A]" /> IOF = fixo {formatCurrency(c.iofFixo)} + diário {formatCurrency(c.iofDiario)} · recolher via DARF até o dia 20 do mês seguinte.

@@ -186,8 +186,11 @@ export interface MutuoCalculo {
   iofAplicavel: boolean;
   irrfAliquota: number;
   irrfJuros: number;
-  totalComJuros: number;    // principal + juros
-  installmentValue: number; // valor estimado da parcela (amortização + juros)
+  totalComJuros: number;         // principal + juros
+  installmentValue: number;      // valor calculado da parcela (amortização + juros), Tabela Price
+  installmentAmortizacao: number; // parte de amortização da 1ª parcela
+  installmentJuros: number;       // parte de juros da 1ª parcela
+  installmentIrrf: number;        // IRRF retido sobre os juros da 1ª parcela
   alertaSemJuros: boolean;  // empresa -> sócio sem juros (risco de distribuição disfarçada)
 }
 
@@ -204,6 +207,15 @@ export const computeMutuo = (m: Mutuo): MutuoCalculo => {
   const irrfAliquota = irrfJurosAliquota(dias);
   const irrfJuros = juros > 0 ? juros * irrfAliquota : 0;
 
+  // Composição da 1ª parcela (Tabela Price): juros incidem sobre o saldo
+  // devedor inicial (valor do mútuo); a amortização é o restante da parcela.
+  // O IRRF é retido sobre a parcela de juros, à mesma alíquota do contrato.
+  const installmentValue = computeInstallmentValue(m.value, m.annualInterestPct, m.parcelas);
+  const monthlyRate = (m.annualInterestPct || 0) / 100 / 12;
+  const installmentJuros = monthlyRate > 0 ? m.value * monthlyRate : 0;
+  const installmentAmortizacao = installmentValue - installmentJuros;
+  const installmentIrrf = installmentJuros * irrfAliquota;
+
   return {
     dias,
     juros,
@@ -214,7 +226,10 @@ export const computeMutuo = (m: Mutuo): MutuoCalculo => {
     irrfAliquota,
     irrfJuros,
     totalComJuros: m.value + juros,
-    installmentValue: computeInstallmentValue(m.value, m.annualInterestPct, m.parcelas),
+    installmentValue,
+    installmentAmortizacao,
+    installmentJuros,
+    installmentIrrf,
     alertaSemJuros: iofAplicavel && m.annualInterestPct <= 0,
   };
 };

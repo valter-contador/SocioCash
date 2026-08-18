@@ -295,8 +295,9 @@ const dataExtenso = (d = new Date()) => {
 
 type ContratoBlock =
   | { kind: 'title' | 'note' | 'para' | 'heading'; text: string }
+  | { kind: 'para-prefix'; prefix: string; rest: string } // parágrafo com o início ("MUTUANTE:"/"MUTUÁRIO:") em negrito
   | { kind: 'signrow'; left: string; right: string }
-  | { kind: 'spacer' };
+  | { kind: 'spacer'; lines?: number }; // linhas em branco (padrão 2)
 
 const numBR = (n: number): string => Math.round(n).toLocaleString('pt-BR');
 
@@ -315,8 +316,8 @@ const buildContratoBlocks = (m: MutuoContrato): { blocks: ContratoBlock[]; fileB
   // Título sem a referência "GRATUITO" (para não estimular a prática).
   b.push({ kind: 'title', text: `CONTRATO DE MÚTUO${oneroso ? ' FENERATÍCIO' : ''}` });
   b.push({ kind: 'para', text: 'Pelo presente instrumento particular, as partes a seguir qualificadas:' });
-  b.push({ kind: 'para', text: `MUTUANTE: ${mutuante}; e` });
-  b.push({ kind: 'para', text: `MUTUÁRIO: ${mutuario}.` });
+  b.push({ kind: 'para-prefix', prefix: 'MUTUANTE:', rest: ` ${mutuante}; e` });
+  b.push({ kind: 'para-prefix', prefix: 'MUTUÁRIO:', rest: ` ${mutuario}.` });
   b.push({ kind: 'para', text: 'têm entre si, justo e contratado, o presente Contrato de Mútuo, que se regerá pelas cláusulas e condições seguintes, nos termos dos artigos 586 e seguintes do Código Civil.' });
   b.push({ kind: 'heading', text: 'CLÁUSULA 1ª — DO OBJETO' });
   b.push({ kind: 'para', text: `O MUTUANTE entrega ao MUTUÁRIO, a título de mútuo, a quantia de ${formatCurrency(m.valor)}, disponibilizada por transferência/crédito na conta do MUTUÁRIO em ${fmtDate(m.releaseDate)}.` });
@@ -343,7 +344,8 @@ const buildContratoBlocks = (m: MutuoContrato): { blocks: ContratoBlock[]; fileB
   b.push({ kind: 'para', text: 'E, por estarem assim justas e contratadas, as partes assinam o presente instrumento em 2 (duas) vias de igual teor e forma, na presença das testemunhas abaixo.' });
   b.push({ kind: 'spacer' });
   b.push({ kind: 'para', text: `${m.foroComarca || '____________________'}, ${dataExtenso()}.` });
-  b.push({ kind: 'spacer' });
+  // Um espaço maior aqui (3 linhas) para reservar área ao carimbo das assinaturas.
+  b.push({ kind: 'spacer', lines: 3 });
   b.push({ kind: 'signrow', left: 'MUTUANTE', right: 'MUTUÁRIO' });
 
   const fileBase = empresaEhMutuante ? `${slug(m.empresaFantasia)}-para-${slug(m.socioNome)}` : `${slug(m.socioNome)}-para-${slug(m.empresaFantasia)}`;
@@ -359,6 +361,27 @@ export const exportMutuoContratoPdf = (m: MutuoContrato) => {
   const maxW = pageW - 2 * margin;
   let y = margin;
   const ensure = (space: number) => { if (y + space > pageH - margin) { doc.addPage(); y = margin; } };
+
+  // Quebra manual de linha respeitando um recuo (largura do prefixo em negrito) só na 1ª linha.
+  const wrapWithPrefix = (prefixWidth: number, rest: string): string[] => {
+    const words = rest.trim().split(/\s+/);
+    const lines: string[] = [];
+    let current = '';
+    let firstLine = true;
+    for (const word of words) {
+      const test = current ? `${current} ${word}` : word;
+      const avail = (firstLine ? maxW - prefixWidth : maxW);
+      if (current && doc.getTextWidth(test) > avail) {
+        lines.push(current);
+        current = word;
+        firstLine = false;
+      } else {
+        current = test;
+      }
+    }
+    if (current) lines.push(current);
+    return lines;
+  };
 
   blocks.forEach(bl => {
     if (bl.kind === 'title') {
@@ -386,8 +409,23 @@ export const exportMutuoContratoPdf = (m: MutuoContrato) => {
       doc.text(bl.right, rightX + colW / 2, y, { align: 'center' });
       y += 22;
     } else if (bl.kind === 'spacer') {
-      // Duas linhas em branco — espaço para reserva/leitura antes de assinar.
-      y += 28;
+      // Linhas em branco (padrão 2) — espaço para reserva/leitura antes de assinar.
+      y += 14 * (bl.lines ?? 2);
+    } else if (bl.kind === 'para-prefix') {
+      // Prefixo ("MUTUANTE:"/"MUTUÁRIO:") em negrito, resto do parágrafo normal.
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+      const prefixW = doc.getTextWidth(`${bl.prefix} `);
+      doc.setFont('helvetica', 'normal');
+      const wrapped = wrapWithPrefix(prefixW, bl.rest);
+      ensure(wrapped.length * 14 + 10);
+      doc.setFont('helvetica', 'bold');
+      doc.text(bl.prefix, margin, y);
+      doc.setFont('helvetica', 'normal');
+      if (wrapped.length > 0) doc.text(wrapped[0], margin + prefixW, y);
+      if (wrapped.length > 1) {
+        doc.text(wrapped.slice(1), margin, y + 14, { maxWidth: maxW, align: 'justify' });
+      }
+      y += wrapped.length * 14 + 10;
     } else {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
       const lines = doc.splitTextToSize(bl.text, maxW); ensure(lines.length * 14 + 10);
@@ -437,8 +475,13 @@ export const exportMutuoContratoDocx = async (m: MutuoContrato) => {
     if (bl.kind === 'note') return [new Paragraph({ spacing: { after: 180 }, children: [new TextRun({ text: bl.text, italics: true, size: 16, color: '9A3412' })] })];
     if (bl.kind === 'heading') return [new Paragraph({ spacing: { before: 180, after: 60 }, children: [new TextRun({ text: bl.text, bold: true, size: 21 })] })];
     if (bl.kind === 'signrow') return [buildSignatureTable(bl.left, bl.right)];
-    // Duas linhas em branco — espaço para reserva/leitura antes de assinar.
-    if (bl.kind === 'spacer') return [new Paragraph({ children: [] }), new Paragraph({ children: [] })];
+    // Linhas em branco (padrão 2) — espaço para reserva/leitura antes de assinar.
+    if (bl.kind === 'spacer') return Array.from({ length: bl.lines ?? 2 }, () => new Paragraph({ children: [] }));
+    // Prefixo ("MUTUANTE:"/"MUTUÁRIO:") em negrito, resto do parágrafo normal.
+    if (bl.kind === 'para-prefix') return [new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { after: 120 }, children: [
+      new TextRun({ text: bl.prefix, bold: true, size: 20 }),
+      new TextRun({ text: bl.rest, size: 20 })
+    ] })];
     return [new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { after: 120 }, children: [new TextRun({ text: bl.text, size: 20 })] })];
   });
   const doc = new Document({ sections: [{ properties: {}, children }] });
