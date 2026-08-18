@@ -1,8 +1,9 @@
 
 import React, { useState } from 'react';
-import { Handshake, Plus, Trash2, X, AlertTriangle, Info, ArrowRight, Landmark, Percent, ShieldAlert } from 'lucide-react';
+import { Handshake, Plus, Trash2, X, AlertTriangle, Info, ArrowRight, Landmark, Percent, ShieldAlert, FileText } from 'lucide-react';
 import { AppData, Mutuo, MutuoDirection, SocioTipo } from '../types';
 import { formatCurrency, computeMutuo } from '../dataService';
+import { exportMutuoContratoPdf } from '../exportService';
 
 interface MutuosProps {
   data: AppData;
@@ -55,6 +56,35 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
 
   const companyName = (id: string) => data.companies.find(c => c.id === id)?.nomeFantasia || '—';
   const partnerName = (id: string) => data.partners.find(p => p.id === id)?.name || '—';
+
+  const gerarContrato = (m: Mutuo) => {
+    const company = data.companies.find(c => c.id === m.companyId);
+    const partner = data.partners.find(p => p.id === m.partnerId);
+    if (!company || !partner) { alert('Empresa ou sócio não encontrado.'); return; }
+    const calc = computeMutuo(m);
+    exportMutuoContratoPdf({
+      direction: m.direction,
+      socioTipo: m.socioTipo,
+      empresaRazao: company.razaoSocial,
+      empresaFantasia: company.nomeFantasia,
+      empresaCnpj: company.cnpj,
+      socioNome: partner.name,
+      socioCpf: partner.cpf,
+      valor: m.value,
+      releaseDate: m.releaseDate,
+      dueDate: m.dueDate,
+      parcelas: m.parcelas,
+      annualInterestPct: m.annualInterestPct,
+      dias: calc.dias,
+      juros: calc.juros,
+      iof: calc.iof,
+      iofAplicavel: calc.iofAplicavel,
+      irrfJuros: calc.irrfJuros,
+      irrfAliquota: calc.irrfAliquota,
+      totalComJuros: calc.totalComJuros,
+      observacao: m.observacao,
+    });
+  };
 
   return (
     <div className="space-y-6 pb-24">
@@ -206,7 +236,12 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
                       </p>
                     </div>
                   </div>
-                  <button onClick={() => handleDelete(m.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={18} /></button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => gerarContrato(m)} className="flex items-center gap-2 px-4 py-2.5 bg-[#2B589A] text-white rounded-xl text-xs font-black tracking-tight hover:bg-[#1E3F6D] shadow-lg shadow-[#2B589A]/20 transition-all">
+                      <FileText size={16} /> Gerar Contrato (PDF)
+                    </button>
+                    <button onClick={() => handleDelete(m.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={18} /></button>
+                  </div>
                 </div>
 
                 <div className="p-6 lg:p-8 grid grid-cols-2 lg:grid-cols-4 gap-4">

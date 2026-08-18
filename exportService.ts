@@ -161,3 +161,129 @@ export const exportFechamentoPdf = (d: FechamentoExport) => {
 
   doc.save(`fechamento-${slug(d.companyFantasia)}-${slug(d.periodo)}.pdf`);
 };
+
+// ---------- Contrato de Mútuo (PDF) ----------
+export interface MutuoContrato {
+  direction: 'EMPRESA_PARA_SOCIO' | 'SOCIO_PARA_EMPRESA';
+  socioTipo: 'PF' | 'PJ';
+  empresaRazao: string;
+  empresaFantasia: string;
+  empresaCnpj: string;
+  socioNome: string;
+  socioCpf: string;
+  valor: number;
+  releaseDate: string;
+  dueDate: string;
+  parcelas: number;
+  annualInterestPct: number;
+  dias: number;
+  juros: number;
+  iof: number;
+  iofAplicavel: boolean;
+  irrfJuros: number;
+  irrfAliquota: number; // fração
+  totalComJuros: number;
+  observacao?: string;
+}
+
+const dataExtenso = (d = new Date()) => {
+  const meses = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  return `${d.getDate()} de ${meses[d.getMonth()]} de ${d.getFullYear()}`;
+};
+
+export const exportMutuoContratoPdf = (m: MutuoContrato) => {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const margin = 52;
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const maxW = pageW - 2 * margin;
+  let y = margin;
+
+  const ensure = (space: number) => { if (y + space > pageH - margin) { doc.addPage(); y = margin; } };
+  const para = (t: string, gap = 10) => {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    const lines = doc.splitTextToSize(t, maxW);
+    ensure(lines.length * 14 + gap);
+    doc.text(lines, margin, y);
+    y += lines.length * 14 + gap;
+  };
+  const heading = (t: string) => {
+    ensure(22); doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
+    doc.text(t, margin, y); y += 15;
+  };
+  const oneroso = m.annualInterestPct > 0;
+
+  // Papéis (mutuante = quem empresta)
+  const empresaEhMutuante = m.direction === 'EMPRESA_PARA_SOCIO';
+  const empresaQualif = `${m.empresaRazao}, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº ${m.empresaCnpj || '____________________'}, com sede em ____________________ (endereço)`;
+  const docLabelSocio = m.socioTipo === 'PF' ? 'CPF' : 'CNPJ';
+  const socioQualif = `${m.socioNome}, ${m.socioTipo === 'PF' ? 'pessoa física' : 'pessoa jurídica'}, inscrito(a) no ${docLabelSocio} sob o nº ${m.socioCpf || '____________________'}, residente/domiciliado(a) em ____________________`;
+  const mutuante = empresaEhMutuante ? empresaQualif : socioQualif;
+  const mutuario = empresaEhMutuante ? socioQualif : empresaQualif;
+
+  // Título
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor('#2B589A');
+  doc.text(`CONTRATO DE MÚTUO ${oneroso ? 'FENERATÍCIO' : 'GRATUITO'}`, pageW / 2, y, { align: 'center' });
+  y += 22;
+  doc.setTextColor('#111111');
+
+  // Aviso de minuta
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor('#9a3412');
+  const aviso = doc.splitTextToSize('MINUTA para conferência jurídica/contábil. Recomenda-se assinatura com firma reconhecida ou assinatura digital, e escrituração nas contabilidades de ambas as partes. Valores tributários indicativos.', maxW);
+  doc.text(aviso, margin, y); y += aviso.length * 11 + 10;
+  doc.setTextColor('#111111'); doc.setFont('helvetica', 'normal');
+
+  para(`Pelo presente instrumento particular, as partes a seguir qualificadas:`);
+  para(`MUTUANTE: ${mutuante}; e`);
+  para(`MUTUÁRIO(A): ${mutuario}.`);
+  para(`têm entre si, justo e contratado, o presente Contrato de Mútuo, que se regerá pelas cláusulas e condições seguintes, nos termos dos artigos 586 e seguintes do Código Civil.`);
+
+  heading('CLÁUSULA 1ª — DO OBJETO');
+  para(`O(A) MUTUANTE entrega ao(à) MUTUÁRIO(A), a título de mútuo, a quantia de ${formatCurrency(m.valor)}, disponibilizada por transferência/crédito em conta em ${fmtDate(m.releaseDate)}.`);
+
+  heading('CLÁUSULA 2ª — DO PRAZO E DA RESTITUIÇÃO');
+  para(`O valor será restituído no prazo de ${m.dias} dia(s), com vencimento final em ${fmtDate(m.dueDate)}, ${m.parcelas > 1 ? `em ${m.parcelas} (${m.parcelas}) parcelas mensais e sucessivas` : 'em parcela única no vencimento'}. Não havendo prazo estipulado, presume-se o vencimento na forma do art. 592 do Código Civil.`);
+
+  heading('CLÁUSULA 3ª — DOS JUROS');
+  if (oneroso) {
+    para(`Sobre o valor mutuado incidirão juros remuneratórios à taxa de ${m.annualInterestPct}% ao ano, calculados de forma simples e pro rata die pelo período de ${m.dias} dia(s), correspondendo a ${formatCurrency(m.juros)}, totalizando ${formatCurrency(m.totalComJuros)} a serem restituídos.`);
+  } else {
+    para(`O presente mútuo é gratuito, não incidindo juros remuneratórios, restituindo-se o valor principal de ${formatCurrency(m.valor)}.`);
+  }
+
+  heading('CLÁUSULA 4ª — DOS TRIBUTOS');
+  const tributos: string[] = [];
+  if (m.iofAplicavel) {
+    tributos.push(`Por se tratar de mútuo concedido por pessoa jurídica, incide o IOF no valor de ${formatCurrency(m.iof)}, de responsabilidade do(a) MUTUANTE, a ser recolhido via DARF até o 20º dia do mês subsequente ao da operação.`);
+  } else {
+    tributos.push(`Não há incidência de IOF corporativo, por se tratar de mútuo concedido por pessoa física à pessoa jurídica.`);
+  }
+  if (oneroso) {
+    tributos.push(`Sobre os juros incide o Imposto de Renda Retido na Fonte à alíquota de ${(m.irrfAliquota * 100).toFixed(1)}% (${formatCurrency(m.irrfJuros)}), conforme o prazo da operação, retido por ocasião do pagamento/crédito dos rendimentos.`);
+  }
+  para(tributos.join(' '));
+
+  heading('CLÁUSULA 5ª — DO VENCIMENTO ANTECIPADO');
+  para(`Ocorrerá o vencimento antecipado da dívida, independentemente de aviso ou notificação, na hipótese de inadimplemento de qualquer obrigação aqui prevista, observada a legislação aplicável.`);
+
+  heading('CLÁUSULA 6ª — DO FORO');
+  para(`Fica eleito o foro da comarca de ____________________ para dirimir quaisquer controvérsias oriundas do presente contrato.`);
+
+  if (m.observacao) { heading('OBSERVAÇÕES'); para(m.observacao); }
+
+  para(`E, por estarem assim justas e contratadas, as partes assinam o presente instrumento em 2 (duas) vias de igual teor e forma, na presença das testemunhas abaixo.`, 16);
+  para(`____________________, ${dataExtenso()}.`, 24);
+
+  const assinatura = (rotulo: string) => {
+    ensure(46);
+    doc.line(margin, y, margin + 250, y); y += 12;
+    doc.setFontSize(9); doc.text(rotulo, margin, y); y += 22; doc.setFontSize(10);
+  };
+  assinatura('MUTUANTE');
+  assinatura('MUTUÁRIO(A)');
+  assinatura('Testemunha 1 — Nome / CPF');
+  assinatura('Testemunha 2 — Nome / CPF');
+
+  const nomeArq = empresaEhMutuante ? `${slug(m.empresaFantasia)}-para-${slug(m.socioNome)}` : `${slug(m.socioNome)}-para-${slug(m.empresaFantasia)}`;
+  doc.save(`contrato-mutuo-${nomeArq}.pdf`);
+};
