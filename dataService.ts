@@ -44,6 +44,11 @@ export const calculatePartnerBalance = (partnerId: string, transactions: Transac
     }, 0);
 };
 
+// IRRF sobre distribuição de lucros: retenção de 10% quando o total de
+// Retirada de Lucros do sócio no mês ultrapassa R$ 50.000,00 (previsão).
+export const IRRF_LUCROS_THRESHOLD = 50000;
+export const IRRF_LUCROS_RATE = 0.10;
+
 export const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
