@@ -4,6 +4,38 @@ export enum TransactionType {
   DEBIT = 'DEBIT'    // Aporte a débito (saída/devolução)
 }
 
+// Natureza Operacional do lançamento. Cada natureza carrega a sua direção
+// contábil (entrada/CREDIT do sócio para a empresa, ou saída/DEBIT da empresa
+// para o sócio), o que mantém a lógica de conta origem/destino automática.
+export enum TransactionNature {
+  APORTE_CAPITAL = 'APORTE_CAPITAL',
+  EMPRESTIMO = 'EMPRESTIMO',
+  DEVOLUCAO_APORTE = 'DEVOLUCAO_APORTE',
+  RETIRADA_LUCROS = 'RETIRADA_LUCROS',
+  PRO_LABORE = 'PRO_LABORE',
+  PAGTO_EMPRESTIMO = 'PAGTO_EMPRESTIMO'
+}
+
+// Metadados de cada natureza: rótulo exibido e direção contábil associada.
+export const NATURE_META: Record<TransactionNature, { label: string; type: TransactionType }> = {
+  [TransactionNature.APORTE_CAPITAL]:   { label: 'Aporte de Capital',   type: TransactionType.CREDIT }, // sócio -> empresa
+  [TransactionNature.DEVOLUCAO_APORTE]: { label: 'Devolução de Aporte', type: TransactionType.DEBIT },  // empresa -> sócio
+  [TransactionNature.RETIRADA_LUCROS]:  { label: 'Retirada de Lucros',  type: TransactionType.DEBIT },  // empresa -> sócio
+  [TransactionNature.PRO_LABORE]:       { label: 'Pró-Labore',          type: TransactionType.DEBIT },  // empresa -> sócio
+  [TransactionNature.EMPRESTIMO]:       { label: 'Empréstimo',          type: TransactionType.DEBIT },  // empresa empresta ao sócio (saída)
+  [TransactionNature.PAGTO_EMPRESTIMO]: { label: 'Pagto Empréstimo',    type: TransactionType.CREDIT }  // sócio devolve o empréstimo (entrada)
+};
+
+// Ordem de exibição no seletor.
+export const NATURE_ORDER: TransactionNature[] = [
+  TransactionNature.APORTE_CAPITAL,
+  TransactionNature.DEVOLUCAO_APORTE,
+  TransactionNature.RETIRADA_LUCROS,
+  TransactionNature.PRO_LABORE,
+  TransactionNature.EMPRESTIMO,
+  TransactionNature.PAGTO_EMPRESTIMO
+];
+
 export enum AccountType {
   CHECKING = 'Corrente',
   SAVINGS = 'Poupança',
@@ -46,6 +78,7 @@ export interface Transaction {
   destinationAccountId: string;
   value: number;
   type: TransactionType;
+  nature?: TransactionNature; // Natureza operacional (opcional p/ retrocompatibilidade)
   description: string;
 }
 
