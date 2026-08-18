@@ -8,6 +8,7 @@ export const initialData: AppData = {
   partners: [],
   bankAccounts: [],
   transactions: [],
+  access: { adminPassword: '', analystPassword: '' },
 };
 
 export const loadData = (): AppData => {

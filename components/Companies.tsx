@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Plus, Trash2, Edit3, Building2, Landmark, X } from 'lucide-react';
+import { Plus, Trash2, Edit3, Building2, Landmark, X, KeyRound, Eye, EyeOff, ShieldAlert, Lock } from 'lucide-react';
 import { AppData, Company, BankAccount, AccountType } from '../types';
 
 interface CompaniesProps {
@@ -11,13 +11,23 @@ interface CompaniesProps {
 const Companies: React.FC<CompaniesProps> = ({ data, onUpdate }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [isAddingAccount, setIsAddingAccount] = useState<string | null>(null);
-  
+  const [showPasswords, setShowPasswords] = useState(false);
+
   const [formData, setFormData] = useState({
     razaoSocial: '',
     nomeFantasia: '',
     cnpj: '',
-    tipo: 'LTDA'
+    tipo: 'LTDA',
+    clientPassword: ''
   });
+
+  const access = data.access || {};
+  const updateAccess = (patch: Partial<{ adminPassword: string; analystPassword: string }>) => {
+    onUpdate({ ...data, access: { ...access, ...patch } });
+  };
+  const updateCompany = (id: string, patch: Partial<Company>) => {
+    onUpdate({ ...data, companies: data.companies.map(c => c.id === id ? { ...c, ...patch } : c) });
+  };
 
   const [accFormData, setAccFormData] = useState({
     bankName: '',
@@ -36,7 +46,7 @@ const Companies: React.FC<CompaniesProps> = ({ data, onUpdate }) => {
       ...data,
       companies: [...data.companies, newCompany]
     });
-    setFormData({ razaoSocial: '', nomeFantasia: '', cnpj: '', tipo: 'LTDA' });
+    setFormData({ razaoSocial: '', nomeFantasia: '', cnpj: '', tipo: 'LTDA', clientPassword: '' });
     setIsAdding(false);
   };
 
@@ -81,6 +91,57 @@ const Companies: React.FC<CompaniesProps> = ({ data, onUpdate }) => {
           <Plus size={20} />
           Registrar Empresa
         </button>
+      </div>
+
+      {/* Controle de Acesso Global (equipe JC Buarque) */}
+      <div className="bg-white p-6 lg:p-8 rounded-3xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-[#2B589A] flex items-center justify-center text-white shadow-md shadow-[#2B589A]/20">
+              <Lock size={20} />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-slate-800 tracking-tight">Controle de Acesso</h3>
+              <p className="text-[11px] text-slate-400 font-medium">Senhas globais da equipe · a do cliente é definida em cada empresa</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPasswords(v => !v)}
+            className="flex items-center gap-2 text-[11px] font-black text-[#2B589A] bg-[#2B589A]/5 px-3 py-2 rounded-xl hover:bg-[#2B589A]/10 transition-colors"
+          >
+            {showPasswords ? <EyeOff size={14} /> : <Eye size={14} />}
+            {showPasswords ? 'Ocultar senhas' : 'Mostrar senhas'}
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5"><KeyRound size={12} className="text-[#2B589A]" /> Senha do Administrador</label>
+            <input
+              type={showPasswords ? 'text' : 'password'}
+              autoComplete="new-password"
+              placeholder="Senha do administrador"
+              className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none transition-all"
+              value={access.adminPassword || ''}
+              onChange={e => updateAccess({ adminPassword: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5"><KeyRound size={12} className="text-[#2B589A]" /> Senha do Analista Contábil</label>
+            <input
+              type={showPasswords ? 'text' : 'password'}
+              autoComplete="new-password"
+              placeholder="Senha do analista contábil"
+              className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none transition-all"
+              value={access.analystPassword || ''}
+              onChange={e => updateAccess({ analystPassword: e.target.value })}
+            />
+          </div>
+        </div>
+        <div className="mt-5 flex items-start gap-2 text-[11px] text-amber-700 bg-amber-50/70 border border-amber-100 rounded-xl p-3">
+          <ShieldAlert size={14} className="mt-0.5 shrink-0 text-amber-500" />
+          <span>App sem servidor: as senhas ficam guardadas no navegador (localStorage) e servem como trava organizacional — não como segurança real. Para acesso protegido de verdade, é necessário um backend com login.</span>
+        </div>
       </div>
 
       {isAdding && (
@@ -135,9 +196,20 @@ const Companies: React.FC<CompaniesProps> = ({ data, onUpdate }) => {
                 <option value="OUTRA">Outra</option>
               </select>
             </div>
+            <div className="md:col-span-2 space-y-1.5">
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5"><KeyRound size={12} className="text-[#2B589A]" /> Senha de Acesso do Cliente</label>
+              <input
+                type={showPasswords ? 'text' : 'password'}
+                autoComplete="new-password"
+                placeholder="Senha que o cliente usará para acessar"
+                className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] focus:border-transparent outline-none transition-all"
+                value={formData.clientPassword}
+                onChange={e => setFormData({...formData, clientPassword: e.target.value})}
+              />
+            </div>
             <div className="md:col-span-2 flex justify-end gap-3 mt-6 pt-6 border-t border-slate-100">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setIsAdding(false)}
                 className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl"
               >
@@ -206,6 +278,22 @@ const Companies: React.FC<CompaniesProps> = ({ data, onUpdate }) => {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Senha de acesso do cliente (por empresa) */}
+              <div className="border-t border-slate-100 pt-6 mt-6">
+                <label className="text-xs font-black text-slate-800 uppercase tracking-[0.15em] flex items-center gap-2 mb-3">
+                  <KeyRound size={14} className="text-[#2B589A]" />
+                  Senha de Acesso do Cliente
+                </label>
+                <input
+                  type={showPasswords ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  placeholder="Definir senha do cliente"
+                  className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none transition-all"
+                  value={company.clientPassword || ''}
+                  onChange={e => updateCompany(company.id, { clientPassword: e.target.value })}
+                />
               </div>
             </div>
           </div>
