@@ -5,9 +5,10 @@ import {
   LayoutDashboard, 
   Building2, 
   Users, 
-  ArrowRightLeft, 
-  FileText, 
+  ArrowRightLeft,
+  FileText,
   Wallet,
+  CalendarClock,
   Menu,
   X,
   ChevronLeft,
@@ -21,6 +22,7 @@ import Companies from './components/Companies';
 import Partners from './components/Partners';
 import Transactions from './components/Transactions';
 import Reports from './components/Reports';
+import Fechamento from './components/Fechamento';
 
 const App: React.FC = () => {
   const [data, setData] = useState<AppData>(loadData());
@@ -81,6 +83,7 @@ const App: React.FC = () => {
               <SidebarItem to="/empresas" icon={<Building2 size={20} />} label="Empresas" onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
               <SidebarItem to="/socios" icon={<Users size={20} />} label="Sócios" onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
               <SidebarItem to="/transacoes" icon={<ArrowRightLeft size={20} />} label="Movimentações" onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
+              <SidebarItem to="/fechamento" icon={<CalendarClock size={20} />} label="Fechamento" onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
               <SidebarItem to="/relatorios" icon={<FileText size={20} />} label="Relatórios" onClick={() => window.innerWidth < 1024 && setSidebarOpen(false)} />
             </nav>
 
@@ -144,6 +147,7 @@ const App: React.FC = () => {
                 <Route path="/empresas" element={<Companies data={data} onUpdate={updateData} />} />
                 <Route path="/socios" element={<Partners data={data} onUpdate={updateData} />} />
                 <Route path="/transacoes" element={<Transactions data={data} onUpdate={updateData} />} />
+                <Route path="/fechamento" element={<Fechamento data={data} />} />
                 <Route path="/relatorios" element={<Reports data={data} />} />
               </Routes>
             </div>

@@ -17,17 +17,17 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
     nature: ''
   });
 
-  const [formData, setFormData] = useState<Partial<Transaction>>({
+  const emptyForm = {
     date: new Date().toISOString().split('T')[0],
-    companyId: '',
     partnerId: '',
-    originAccountId: '',
-    destinationAccountId: '',
+    companyAccountId: '',   // conta corrente da empresa (deriva a empresa)
+    partnerAccountId: '',   // conta corrente do sócio
     value: 0,
     type: TransactionType.CREDIT,
     nature: TransactionNature.APORTE_CAPITAL,
     description: ''
-  });
+  };
+  const [formData, setFormData] = useState(emptyForm);
 
   const filteredTransactions = useMemo(() => {
     return data.transactions
@@ -39,20 +39,29 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
 
   const handleAddTransaction = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.companyId || !formData.value || formData.value <= 0) {
-      alert('Selecione uma empresa e um valor válido');
+    const companyAccount = data.bankAccounts.find(a => a.id === formData.companyAccountId);
+    if (!formData.partnerId || !companyAccount || !formData.partnerAccountId || !formData.value || formData.value <= 0) {
+      alert('Selecione o sócio, as contas corrente (empresa e sócio) e um valor válido.');
       return;
     }
 
+    // A empresa é derivada da conta corrente da empresa selecionada.
+    const companyId = companyAccount.ownerId;
+    // Direção contábil define quem é origem/destino:
+    // Entrada (CREDIT): sócio -> empresa | Saída (DEBIT): empresa -> sócio
+    const isCredit = formData.type === TransactionType.CREDIT;
+    const originAccountId = isCredit ? formData.partnerAccountId : formData.companyAccountId;
+    const destinationAccountId = isCredit ? formData.companyAccountId : formData.partnerAccountId;
+
     const newTx: Transaction = {
       id: crypto.randomUUID(),
-      date: formData.date!,
-      companyId: formData.companyId!,
+      date: formData.date,
+      companyId,
       partnerId: formData.partnerId,
-      originAccountId: formData.originAccountId!,
-      destinationAccountId: formData.destinationAccountId!,
-      value: formData.value!,
-      type: formData.type as TransactionType,
+      originAccountId,
+      destinationAccountId,
+      value: formData.value,
+      type: formData.type,
       nature: formData.nature,
       description: formData.description || ''
     };
@@ -62,16 +71,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
       transactions: [...data.transactions, newTx]
     });
     setIsAdding(false);
-    setFormData({
-      date: new Date().toISOString().split('T')[0],
-      companyId: '',
-      partnerId: '',
-      originAccountId: '',
-      destinationAccountId: '',
-      value: 0,
-      type: TransactionType.CREDIT,
-      description: ''
-    });
+    setFormData({ ...emptyForm, date: new Date().toISOString().split('T')[0] });
   };
 
   const handleDeleteTransaction = (id: string) => {
@@ -83,21 +83,20 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
     }
   };
 
-  const availableOriginAccounts = useMemo(() => {
-    if (formData.type === TransactionType.CREDIT) {
-        return data.bankAccounts.filter(acc => acc.ownerType === 'PARTNER' && acc.ownerId === formData.partnerId);
-    } else {
-        return data.bankAccounts.filter(acc => acc.ownerType === 'COMPANY' && acc.ownerId === formData.companyId);
-    }
-  }, [data.bankAccounts, formData.type, formData.partnerId, formData.companyId]);
+  // Contas correntes das empresas (todas) — a empresa é derivada da conta escolhida.
+  const empresaAccounts = useMemo(
+    () => data.bankAccounts.filter(acc => acc.ownerType === 'COMPANY'),
+    [data.bankAccounts]
+  );
 
-  const availableDestAccounts = useMemo(() => {
-    if (formData.type === TransactionType.CREDIT) {
-        return data.bankAccounts.filter(acc => acc.ownerType === 'COMPANY' && acc.ownerId === formData.companyId);
-    } else {
-        return data.bankAccounts.filter(acc => acc.ownerType === 'PARTNER' && acc.ownerId === formData.partnerId);
-    }
-  }, [data.bankAccounts, formData.type, formData.partnerId, formData.companyId]);
+  // Contas correntes do sócio selecionado.
+  const socioAccounts = useMemo(
+    () => data.bankAccounts.filter(acc => acc.ownerType === 'PARTNER' && acc.ownerId === formData.partnerId),
+    [data.bankAccounts, formData.partnerId]
+  );
+
+  const companyNameOf = (companyId: string) =>
+    data.companies.find(c => c.id === companyId)?.nomeFantasia || 'Empresa';
 
   return (
     <div className="space-y-6">
@@ -280,10 +279,7 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
                         setFormData({
                           ...formData,
                           nature,
-                          type: NATURE_META[nature].type,
-                          // Direção mudou: limpa as contas para revincular origem/destino corretos
-                          originAccountId: '',
-                          destinationAccountId: ''
+                          type: NATURE_META[nature].type
                         });
                       }}
                     >
@@ -292,51 +288,45 @@ const Transactions: React.FC<TransactionsProps> = ({ data, onUpdate }) => {
                       ))}
                     </select>
                   </div>
-                  <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Empresa Destinatária *</label>
-                    <select 
-                      required 
-                      className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold" 
-                      value={formData.companyId} 
-                      onChange={e => setFormData({...formData, companyId: e.target.value})}
+                  <div className="md:col-span-2 space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sócio(a) *</label>
+                    <select
+                      required
+                      className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold"
+                      value={formData.partnerId}
+                      onChange={e => setFormData({...formData, partnerId: e.target.value, partnerAccountId: ''})}
                     >
-                      <option value="">Localizar empresa...</option>
-                      {data.companies.map(c => <option key={c.id} value={c.id}>{c.nomeFantasia}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sócio Interveniente</label>
-                    <select 
-                      className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold" 
-                      value={formData.partnerId} 
-                      onChange={e => setFormData({...formData, partnerId: e.target.value})}
-                    >
-                      <option value="">Lançamento Direto em Caixa</option>
+                      <option value="">Selecionar sócio(a)...</option>
                       {data.partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Conta Origem (Auditada) *</label>
-                    <select 
-                      required 
-                      className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold" 
-                      value={formData.originAccountId} 
-                      onChange={e => setFormData({...formData, originAccountId: e.target.value})}
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Conta Corrente (Empresa) *</label>
+                    <select
+                      required
+                      className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold"
+                      value={formData.companyAccountId}
+                      onChange={e => setFormData({...formData, companyAccountId: e.target.value})}
                     >
-                      <option value="">Vincular conta origem...</option>
-                      {availableOriginAccounts.map(acc => <option key={acc.id} value={acc.id}>{acc.bankName} ({acc.accountNumber})</option>)}
+                      <option value="">Vincular conta da empresa...</option>
+                      {empresaAccounts.map(acc => (
+                        <option key={acc.id} value={acc.id}>{companyNameOf(acc.ownerId)} · {acc.bankName} ({acc.accountNumber})</option>
+                      ))}
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Conta Destino (Auditada) *</label>
-                    <select 
-                      required 
-                      className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold" 
-                      value={formData.destinationAccountId} 
-                      onChange={e => setFormData({...formData, destinationAccountId: e.target.value})}
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Conta Corrente (Sócio) *</label>
+                    <select
+                      required
+                      disabled={!formData.partnerId}
+                      className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                      value={formData.partnerAccountId}
+                      onChange={e => setFormData({...formData, partnerAccountId: e.target.value})}
                     >
-                      <option value="">Vincular conta destino...</option>
-                      {availableDestAccounts.map(acc => <option key={acc.id} value={acc.id}>{acc.bankName} ({acc.accountNumber})</option>)}
+                      <option value="">{formData.partnerId ? 'Vincular conta do sócio...' : 'Selecione o sócio primeiro'}</option>
+                      {socioAccounts.map(acc => (
+                        <option key={acc.id} value={acc.id}>{acc.bankName} ({acc.accountNumber})</option>
+                      ))}
                     </select>
                   </div>
                   <div className="md:col-span-2 space-y-3">
