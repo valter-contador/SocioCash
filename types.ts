@@ -59,6 +59,14 @@ export interface Company {
   nomeFantasia: string;
   cnpj: string;
   tipo: string; // LTDA, SLU, etc.
+  clientPassword?: string; // Senha de acesso do cliente (por empresa)
+}
+
+// Controle de acesso GLOBAL (equipe JC Buarque). Observação: app sem backend —
+// senhas ficam no localStorage e NÃO são segurança real, apenas uma trava simples.
+export interface AccessConfig {
+  adminPassword?: string;   // Administrador
+  analystPassword?: string; // Analista Contábil
 }
 
 export interface Partner {
@@ -92,4 +100,5 @@ export interface AppData {
   partners: Partner[];
   bankAccounts: BankAccount[];
   transactions: Transaction[];
+  access?: AccessConfig; // Senhas globais (admin / analista contábil)
 }
