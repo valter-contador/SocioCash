@@ -2,13 +2,12 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info, Building2, Filter, FileText, FileSpreadsheet, Handshake } from 'lucide-react';
-import { AppData, Transaction, TransactionType, TransactionNature, NATURE_ORDER, NATURE_META, Mutuo } from '../types';
+import { AppData, Transaction, TransactionType, TransactionNature, NATURE_ORDER, NATURE_META } from '../types';
 import { formatCurrency, IRRF_LUCROS_THRESHOLD, IRRF_LUCROS_RATE, irrfBaseFromNet, irrfLucrosFromNet } from '../dataService';
 import { exportFechamentoPdf, exportFechamentoXlsx, FechamentoExport } from '../exportService';
 
 interface FechamentoProps {
   data: AppData;
-  onUpdate?: (data: AppData) => void;
   canManage?: boolean;
 }
 
@@ -51,33 +50,16 @@ interface PartnerExtract {
   cobertoVigente: boolean;   // existe mútuo empresa→sócio ainda dentro do prazo (vencimento ≥ fim do mês)
 }
 
-const Fechamento: React.FC<FechamentoProps> = ({ data, onUpdate, canManage }) => {
+const Fechamento: React.FC<FechamentoProps> = ({ data, canManage }) => {
   const navigate = useNavigate();
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
-  // Cria um contrato de mútuo (empresa→sócio) a partir do saldo devedor e leva à aba Mútuos.
+  // Leva à aba Mútuos com o cadastro pré-preenchido pelo saldo devedor
+  // (a taxa SELIC é obrigatória e digitada pelo usuário lá).
   const formalizarMutuo = (partnerId: string, saldoDevedor: number) => {
-    if (!onUpdate) return;
-    const rel = new Date();
-    const due = new Date(); due.setDate(due.getDate() + 180);
-    const iso = (d: Date) => d.toISOString().split('T')[0];
-    const novo: Mutuo = {
-      id: crypto.randomUUID(),
-      companyId: selectedCompanyId,
-      partnerId,
-      direction: 'EMPRESA_PARA_SOCIO',
-      socioTipo: 'PF',
-      value: saldoDevedor,
-      releaseDate: iso(rel),
-      dueDate: iso(due),
-      parcelas: 1,
-      annualInterestPct: 0,
-      observacao: `Formalização do saldo devedor de conta corrente — competência ${months[selectedMonth]}/${selectedYear}`,
-    };
-    onUpdate({ ...data, mutuos: [...(data.mutuos || []), novo] });
-    navigate('/mutuos');
+    navigate('/mutuos', { state: { prefill: { companyId: selectedCompanyId, partnerId, value: saldoDevedor } } });
   };
 
   const closing = useMemo(() => {
@@ -475,7 +457,7 @@ const Fechamento: React.FC<FechamentoProps> = ({ data, onUpdate, canManage }) =>
                             <div className="flex justify-between text-rose-600"><span>IRRF ({(IRRF_LUCROS_RATE * 100).toFixed(0)}%)</span><span className="font-black">{riscoIrrf > 0 ? formatCurrency(riscoIrrf) : `Isento (< ${formatCurrency(IRRF_LUCROS_THRESHOLD)})`}</span></div>
                           </div>
                           <p className="text-[11px] text-slate-500 font-medium">Recomendação: formalizar contrato de mútuo (aba Mútuos) ou devolver o valor ao caixa antes do fechamento.</p>
-                          {canManage && onUpdate && (
+                          {canManage && (
                             <button
                               type="button"
                               onClick={() => formalizarMutuo(ext.partnerId, ext.saldoDevedor)}

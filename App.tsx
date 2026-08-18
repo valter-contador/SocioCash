@@ -196,7 +196,7 @@ const App: React.FC = () => {
                 {canManage && <Route path="/socios" element={<Partners data={data} onUpdate={updateData} />} />}
                 {canManage && <Route path="/transacoes" element={<Transactions data={data} onUpdate={updateData} />} />}
                 {canManage && <Route path="/mutuos" element={<Mutuos data={data} onUpdate={updateData} />} />}
-                <Route path="/fechamento" element={<Fechamento data={scopedData} onUpdate={canManage ? updateData : undefined} canManage={canManage} />} />
+                <Route path="/fechamento" element={<Fechamento data={scopedData} canManage={canManage} />} />
                 <Route path="/relatorios" element={<Reports data={scopedData} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
