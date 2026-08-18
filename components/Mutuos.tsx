@@ -1,9 +1,10 @@
 
-import React, { useState } from 'react';
-import { Handshake, Plus, Trash2, X, AlertTriangle, Info, ArrowRight, Landmark, Percent, ShieldAlert, FileText } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
+import { Handshake, Plus, Trash2, X, AlertTriangle, Info, ArrowRight, Landmark, Percent, ShieldAlert, FileText, FileType2 } from 'lucide-react';
 import { AppData, Mutuo, MutuoDirection, SocioTipo, TransactionNature } from '../types';
 import { formatCurrency, computeMutuo } from '../dataService';
-import { exportMutuoContratoPdf } from '../exportService';
+import { exportMutuoContratoPdf, exportMutuoContratoDocx, MutuoContrato } from '../exportService';
 
 interface MutuosProps {
   data: AppData;
@@ -31,13 +32,25 @@ const fmtDate = (s: string) => {
 };
 
 const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
+  const location = useLocation();
   const [isAdding, setIsAdding] = useState(false);
   const [form, setForm] = useState(emptyForm());
   const mutuos = data.mutuos || [];
 
+  // Pré-preenchimento vindo do Fechamento ("Formalizar mútuo deste saldo").
+  useEffect(() => {
+    const pf = (location.state as any)?.prefill;
+    if (pf) {
+      setForm({ ...emptyForm(), companyId: pf.companyId || '', partnerId: pf.partnerId || '', value: pf.value || 0 });
+      setIsAdding(true);
+      window.history.replaceState({}, ''); // evita reabrir ao voltar
+    }
+  }, [location.state]);
+
   // Simulação ao vivo a partir do formulário atual.
   const preview = computeMutuo({ id: 'preview', ...form });
-  const canSave = !!form.companyId && !!form.partnerId && form.value > 0 && !!form.dueDate;
+  // Taxa SELIC (juros) é OBRIGATÓRIA.
+  const canSave = !!form.companyId && !!form.partnerId && form.value > 0 && !!form.dueDate && form.annualInterestPct > 0;
 
   // Saldo devedor atual do par (Empréstimo − Pagto Empréstimo), vindo dos lançamentos.
   const saldoDevedorPar = (form.companyId && form.partnerId)
@@ -48,7 +61,7 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSave) { alert('Preencha empresa, sócio, valor e data de vencimento.'); return; }
+    if (!canSave) { alert('Preencha empresa, sócio, valor, data de vencimento e a taxa SELIC (juros).'); return; }
     const novo: Mutuo = { id: crypto.randomUUID(), ...form };
     onUpdate({ ...data, mutuos: [...mutuos, novo] });
     setForm(emptyForm());
@@ -64,12 +77,12 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
   const companyName = (id: string) => data.companies.find(c => c.id === id)?.nomeFantasia || '—';
   const partnerName = (id: string) => data.partners.find(p => p.id === id)?.name || '—';
 
-  const gerarContrato = (m: Mutuo) => {
+  const buildPayload = (m: Mutuo): MutuoContrato | null => {
     const company = data.companies.find(c => c.id === m.companyId);
     const partner = data.partners.find(p => p.id === m.partnerId);
-    if (!company || !partner) { alert('Empresa ou sócio não encontrado.'); return; }
+    if (!company || !partner) { alert('Empresa ou sócio não encontrado.'); return null; }
     const calc = computeMutuo(m);
-    exportMutuoContratoPdf({
+    return {
       direction: m.direction,
       socioTipo: m.socioTipo,
       empresaRazao: company.razaoSocial,
@@ -93,8 +106,10 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
       irrfAliquota: calc.irrfAliquota,
       totalComJuros: calc.totalComJuros,
       observacao: m.observacao,
-    });
+    };
   };
+  const gerarContratoPdf = (m: Mutuo) => { const p = buildPayload(m); if (p) exportMutuoContratoPdf(p); };
+  const gerarContratoWord = (m: Mutuo) => { const p = buildPayload(m); if (p) exportMutuoContratoDocx(p); };
 
   return (
     <div className="space-y-6 pb-24">
@@ -116,8 +131,8 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
         <div className="flex items-start gap-3">
           <Info size={18} className="text-amber-500 mt-0.5 shrink-0" />
           <p className="text-sm text-amber-800 font-semibold leading-relaxed">
-            <span className="uppercase tracking-[0.2em] text-[10px] block mb-1 opacity-70">Valores indicativos</span>
-            Os tributos aqui calculados (IOF e IRRF sobre juros) são uma <strong>previsão para conferência</strong> pela contabilidade — confirme as alíquotas na legislação vigente antes de recolher. O mútuo deve ser <strong>formalizado por contrato</strong> com prazo, parcelas e (quando cabível) juros de mercado, para não ser desconfigurado como distribuição de lucros/pró-labore.
+            <span className="uppercase tracking-[0.2em] text-[10px] block mb-1 opacity-70">Parametrização validada</span>
+            IOF e IRRF sobre juros calculados conforme as alíquotas validadas com a contabilidade. Informe a <strong>taxa SELIC vigente</strong> (obrigatória) e formalize o mútuo por <strong>contrato</strong> com prazo, parcelas e juros de mercado, para não ser desconfigurado como distribuição de lucros/pró-labore.
           </p>
         </div>
       </div>
@@ -182,8 +197,9 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
                 <input type="number" min={1} className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold" value={form.parcelas} onChange={e => setForm({ ...form, parcelas: Math.max(1, Number(e.target.value)) })} />
               </div>
               <div className="space-y-1.5">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Juros (% ao ano)</label>
-                <input type="number" step="0.01" min={0} placeholder="0 = sem juros" className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold" value={form.annualInterestPct || ''} onChange={e => setForm({ ...form, annualInterestPct: Number(e.target.value) })} />
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Taxa SELIC (% ao ano) *</label>
+                <input required type="number" step="0.01" min={0.01} placeholder="Ex.: 11,25" className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-[#2B589A] outline-none font-bold" value={form.annualInterestPct || ''} onChange={e => setForm({ ...form, annualInterestPct: Number(e.target.value) })} />
+                <p className="text-[10px] text-slate-400 font-medium ml-1">Obrigatória — informe a SELIC vigente (o app não busca a taxa online).</p>
               </div>
               <div className="sm:col-span-2 space-y-1.5">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Observação</label>
@@ -252,8 +268,11 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => gerarContrato(m)} className="flex items-center gap-2 px-4 py-2.5 bg-[#2B589A] text-white rounded-xl text-xs font-black tracking-tight hover:bg-[#1E3F6D] shadow-lg shadow-[#2B589A]/20 transition-all">
-                      <FileText size={16} /> Gerar Contrato (PDF)
+                    <button onClick={() => gerarContratoPdf(m)} className="flex items-center gap-2 px-4 py-2.5 bg-[#2B589A] text-white rounded-xl text-xs font-black tracking-tight hover:bg-[#1E3F6D] shadow-lg shadow-[#2B589A]/20 transition-all">
+                      <FileText size={16} /> Contrato PDF
+                    </button>
+                    <button onClick={() => gerarContratoWord(m)} className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black tracking-tight hover:bg-emerald-700 shadow-lg shadow-emerald-600/20 transition-all">
+                      <FileType2 size={16} /> Word (.docx)
                     </button>
                     <button onClick={() => handleDelete(m.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={18} /></button>
                   </div>
