@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info } from 'lucide-react';
+import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info, Building2 } from 'lucide-react';
 import { AppData, TransactionType, TransactionNature, NATURE_ORDER, NATURE_META } from '../types';
 import { formatCurrency, IRRF_LUCROS_THRESHOLD, IRRF_LUCROS_RATE } from '../dataService';
 
@@ -24,28 +24,41 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
       return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
 
-    const rows = data.partners.map(partner => {
-      const txs = periodTx.filter(t => t.partnerId === partner.id);
+    // Agrupa por par EMPRESA × SÓCIO: o teto de R$ 50.000,00 é apurado por
+    // beneficiário E empresa dentro do mesmo mês calendário.
+    const groups = new Map<string, { companyId: string; partnerId: string; byNature: Record<string, number> }>();
+    periodTx.forEach(t => {
+      if (!t.partnerId) return; // lançamentos sem sócio não entram no fechamento
+      const key = `${t.companyId}|${t.partnerId}`;
+      let entry = groups.get(key);
+      if (!entry) {
+        const byNature: Record<string, number> = {};
+        NATURE_ORDER.forEach(n => { byNature[n] = 0; });
+        entry = { companyId: t.companyId, partnerId: t.partnerId, byNature };
+        groups.set(key, entry);
+      }
+      if (t.nature && entry.byNature[t.nature] !== undefined) entry.byNature[t.nature] += t.value;
+    });
 
-      // Total por natureza.
-      const byNature: Record<string, number> = {};
-      NATURE_ORDER.forEach(n => { byNature[n] = 0; });
-      txs.forEach(t => {
-        if (t.nature && byNature[t.nature] !== undefined) byNature[t.nature] += t.value;
-      });
+    const rows = [...groups.entries()].map(([key, g]) => {
+      const partner = data.partners.find(p => p.id === g.partnerId);
+      const company = data.companies.find(c => c.id === g.companyId);
 
       const totalEntradas = NATURE_ORDER
         .filter(n => NATURE_META[n].type === TransactionType.CREDIT)
-        .reduce((s, n) => s + byNature[n], 0);
+        .reduce((s, n) => s + g.byNature[n], 0);
       const totalSaidas = NATURE_ORDER
         .filter(n => NATURE_META[n].type === TransactionType.DEBIT)
-        .reduce((s, n) => s + byNature[n], 0);
+        .reduce((s, n) => s + g.byNature[n], 0);
 
-      const lucros = byNature[TransactionNature.RETIRADA_LUCROS] || 0;
+      // IRRF apurado sobre o total de Retirada de Lucros deste par empresa×sócio.
+      const lucros = g.byNature[TransactionNature.RETIRADA_LUCROS] || 0;
       const irrf = lucros > IRRF_LUCROS_THRESHOLD ? lucros * IRRF_LUCROS_RATE : 0;
 
-      return { partner, byNature, totalEntradas, totalSaidas, lucros, irrf, hasMovement: txs.length > 0 };
-    }).filter(r => r.hasMovement);
+      return { key, partner, company, byNature: g.byNature, totalEntradas, totalSaidas, lucros, irrf };
+    })
+      .filter(r => r.partner)
+      .sort((a, b) => (a.partner!.name).localeCompare(b.partner!.name));
 
     const totalLucros = rows.reduce((s, r) => s + r.lucros, 0);
     const totalIrrf = rows.reduce((s, r) => s + r.irrf, 0);
@@ -59,7 +72,7 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">Fechamento Mensal por Sócio</h2>
-          <p className="text-slate-500 font-medium tracking-tight">Saldos por natureza e previsão de IRRF sobre distribuição de lucros</p>
+          <p className="text-slate-500 font-medium tracking-tight">Saldos por natureza e IRRF sobre lucros — apurado por empresa e sócio no mês</p>
         </div>
         <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-[#2B589A] rounded-full text-[10px] font-black uppercase tracking-widest border border-indigo-100 shrink-0">
           <CalendarClock size={14} />
@@ -73,9 +86,10 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
           <Info size={18} className="text-amber-500 mt-0.5 shrink-0" />
           <p className="text-sm text-amber-800 font-semibold leading-relaxed">
             <span className="uppercase tracking-[0.2em] text-[10px] block mb-1 opacity-70">Previsão de IRRF sobre Lucros</span>
-            Quando o total de <strong>Retirada de Lucros</strong> de um sócio no mês ultrapassa {formatCurrency(IRRF_LUCROS_THRESHOLD)},
-            aplica-se a alíquota de <strong>{(IRRF_LUCROS_RATE * 100).toFixed(0)}%</strong> sobre o total retirado a título de lucros.
-            Valor meramente indicativo para conferência contábil.
+            A apuração é feita <strong>por empresa e por sócio</strong>: somam-se todas as <strong>Retiradas de Lucros</strong> da mesma
+            empresa para o mesmo sócio no mês. Se esse total ultrapassar {formatCurrency(IRRF_LUCROS_THRESHOLD)}, a alíquota de{' '}
+            <strong>{(IRRF_LUCROS_RATE * 100).toFixed(0)}%</strong> incide sobre <strong>todo</strong> o montante de lucros do período
+            (não apenas o excedente). Valor meramente indicativo para conferência contábil.
           </p>
         </div>
       </div>
@@ -114,17 +128,20 @@ const Fechamento: React.FC<FechamentoProps> = ({ data }) => {
       {/* Cards por sócio */}
       {closing.rows.length > 0 ? (
         <div className="space-y-6">
-          {closing.rows.map(({ partner, byNature, totalEntradas, totalSaidas, lucros, irrf }) => (
-            <div key={partner.id} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-              {/* Cabeçalho do sócio */}
+          {closing.rows.map(({ key, partner, company, byNature, totalEntradas, totalSaidas, lucros, irrf }) => (
+            <div key={key} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+              {/* Cabeçalho do par empresa × sócio */}
               <div className="p-6 lg:p-8 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-[#2B589A] flex items-center justify-center text-white font-black shadow-md shadow-[#2B589A]/20">
-                    {partner.name.slice(0, 2).toUpperCase()}
+                    {partner!.name.slice(0, 2).toUpperCase()}
                   </div>
                   <div>
-                    <h3 className="text-lg font-black text-slate-800 tracking-tight">{partner.name}</h3>
-                    <p className="text-[11px] text-slate-400 font-mono">CPF {partner.cpf || '—'}</p>
+                    <h3 className="text-lg font-black text-slate-800 tracking-tight">{partner!.name}</h3>
+                    <p className="text-[11px] text-slate-400 font-mono">CPF {partner!.cpf || '—'}</p>
+                    <p className="text-[11px] font-bold text-[#2B589A] mt-0.5 flex items-center gap-1">
+                      <Building2 size={11} /> {company?.nomeFantasia || 'Empresa'}
+                    </p>
                   </div>
                 </div>
                 {irrf > 0 ? (
