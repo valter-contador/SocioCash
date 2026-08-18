@@ -1,5 +1,5 @@
 
-import { AppData, Company, Partner, BankAccount, Transaction, TransactionType, Session } from './types';
+import { AppData, Company, Partner, BankAccount, Transaction, TransactionType, Session, Mutuo } from './types';
 
 const STORAGE_KEY = 'sociocash_data';
 const SESSION_KEY = 'sociocash_session';
@@ -10,6 +10,7 @@ export const initialData: AppData = {
   bankAccounts: [],
   transactions: [],
   access: { adminPassword: '', analystPassword: '' },
+  mutuos: [],
 };
 
 export const loadData = (): AppData => {
@@ -74,6 +75,7 @@ export const scopeDataForSession = (data: AppData, session: Session | null): App
       (a.ownerType === 'PARTNER' && partnerIds.has(a.ownerId))
     ),
     transactions: data.transactions.filter(t => t.companyId === cid),
+    mutuos: (data.mutuos || []).filter(m => m.companyId === cid),
   };
 };
 
@@ -108,6 +110,70 @@ export const irrfBaseFromNet = (netLucros: number): number =>
 
 export const irrfLucrosFromNet = (netLucros: number): number =>
   netLucros > IRRF_LUCROS_THRESHOLD ? irrfBaseFromNet(netLucros) * IRRF_LUCROS_RATE : 0;
+
+// ---------- Motor fiscal do Contrato de Mútuo (valores INDICATIVOS) ----------
+// IOF (só quando a EMPRESA empresta ao sócio): 0,38% fixo (uma vez) +
+// alíquota diária de 0,0082%/dia (sócio PF, teto 365 dias ≈ 3% a.a.) ou
+// 0,0041%/dia (sócio PJ). Sócio PF emprestando à empresa: sem IOF.
+export const IOF_FIXO_RATE = 0.0038;
+export const IOF_DIA_PF = 0.000082;
+export const IOF_DIA_PJ = 0.000041;
+export const IOF_DIA_CAP = 365;
+
+// IRRF sobre os JUROS (regressivo pelo prazo do contrato).
+export const irrfJurosAliquota = (dias: number): number =>
+  dias <= 180 ? 0.225 : dias <= 360 ? 0.20 : dias <= 720 ? 0.175 : 0.15;
+
+const dateToUTC = (s: string): number => {
+  const [y, m, d] = (s || '').split('-').map(Number);
+  return (y && m && d) ? Date.UTC(y, m - 1, d) : NaN;
+};
+
+export const diasEntre = (inicio: string, fim: string): number => {
+  const a = dateToUTC(inicio), b = dateToUTC(fim);
+  if (isNaN(a) || isNaN(b)) return 0;
+  return Math.max(0, Math.round((b - a) / 86400000));
+};
+
+export interface MutuoCalculo {
+  dias: number;
+  juros: number;
+  iofFixo: number;
+  iofDiario: number;
+  iof: number;
+  iofAplicavel: boolean;
+  irrfAliquota: number;
+  irrfJuros: number;
+  totalComJuros: number;   // principal + juros
+  alertaSemJuros: boolean; // empresa -> sócio sem juros (risco de distribuição disfarçada)
+}
+
+export const computeMutuo = (m: Mutuo): MutuoCalculo => {
+  const dias = diasEntre(m.releaseDate, m.dueDate);
+  const juros = m.annualInterestPct > 0 ? m.value * (m.annualInterestPct / 100) * (dias / 365) : 0;
+
+  const iofAplicavel = m.direction === 'EMPRESA_PARA_SOCIO';
+  const iofFixo = iofAplicavel ? m.value * IOF_FIXO_RATE : 0;
+  const rateDia = m.socioTipo === 'PF' ? IOF_DIA_PF : IOF_DIA_PJ;
+  const iofDiario = iofAplicavel ? m.value * rateDia * Math.min(dias, IOF_DIA_CAP) : 0;
+  const iof = iofFixo + iofDiario;
+
+  const irrfAliquota = irrfJurosAliquota(dias);
+  const irrfJuros = juros > 0 ? juros * irrfAliquota : 0;
+
+  return {
+    dias,
+    juros,
+    iofFixo,
+    iofDiario,
+    iof,
+    iofAplicavel,
+    irrfAliquota,
+    irrfJuros,
+    totalComJuros: m.value + juros,
+    alertaSemJuros: iofAplicavel && m.annualInterestPct <= 0,
+  };
+};
 
 export const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('pt-BR', {

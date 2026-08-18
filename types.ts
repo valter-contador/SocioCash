@@ -95,6 +95,24 @@ export interface User {
   name: string;
 }
 
+// ---------- Contrato de Mútuo (empréstimo sócio ⇄ empresa) ----------
+export type MutuoDirection = 'EMPRESA_PARA_SOCIO' | 'SOCIO_PARA_EMPRESA';
+export type SocioTipo = 'PF' | 'PJ';
+
+export interface Mutuo {
+  id: string;
+  companyId: string;
+  partnerId: string;
+  direction: MutuoDirection;    // sentido do empréstimo
+  socioTipo: SocioTipo;         // PF (CPF) ou PJ (CNPJ) — afeta IOF diário
+  value: number;                // valor do contrato
+  releaseDate: string;          // data de liberação (YYYY-MM-DD)
+  dueDate: string;              // data de vencimento (YYYY-MM-DD)
+  parcelas: number;             // nº de parcelas (1 = à vista no vencimento)
+  annualInterestPct: number;    // taxa de juros % ao ano (0 = sem juros)
+  observacao?: string;
+}
+
 export type Role = 'admin' | 'analyst' | 'client';
 
 export interface Session {
@@ -109,4 +127,5 @@ export interface AppData {
   bankAccounts: BankAccount[];
   transactions: Transaction[];
   access?: AccessConfig; // Senhas globais (admin / analista contábil)
+  mutuos?: Mutuo[];      // Contratos de mútuo
 }
