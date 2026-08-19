@@ -1,82 +1,195 @@
 
-import { AppData, Company, Partner, BankAccount, Transaction, TransactionType, Session, Mutuo } from './types';
-
-const STORAGE_KEY = 'sociocash_data';
-const SESSION_KEY = 'sociocash_session';
+import { AppData, Company, Partner, BankAccount, Transaction, TransactionType, Session, Mutuo, AccessUser, Role } from './types';
+import { supabase, loginIdToEmail } from './supabaseClient';
 
 export const initialData: AppData = {
   companies: [],
   partners: [],
   bankAccounts: [],
   transactions: [],
-  access: { adminPassword: '', analystPassword: '' },
+  access: { users: [] },
   mutuos: [],
 };
 
-export const loadData = (): AppData => {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved) {
-    try {
-      return JSON.parse(saved);
-    } catch (e) {
-      console.error('Failed to load data', e);
+// Mantém só os dígitos — usado para comparar CPF/CNPJ digitados com ou sem máscara.
+export const onlyDigits = (s: string): string => (s || '').replace(/\D/g, '');
+
+// ---------- Autenticação (Supabase Auth — CPF/CNPJ vira e-mail sintético) ----------
+const sessionFromSupabaseUser = (user: { app_metadata?: any } | null | undefined): Session | null => {
+  const meta = user?.app_metadata || {};
+  if (!meta.role) return null;
+  return {
+    role: meta.role as Role,
+    companyId: meta.company_id || undefined,
+    userId: meta.user_id || undefined,
+    label: meta.label || (meta.role === 'admin' ? 'Administrador' : meta.role === 'analyst' ? 'Analista Contábil' : 'Cliente'),
+  };
+};
+
+export const getCurrentSession = async (): Promise<Session | null> => {
+  const { data } = await supabase.auth.getSession();
+  return sessionFromSupabaseUser(data.session?.user);
+};
+
+// Login por identificador (CPF do usuário da equipe, ou CNPJ da empresa cliente) + senha.
+export const authenticate = async (loginId: string, password: string): Promise<Session | null> => {
+  const id = onlyDigits(loginId);
+  const pwd = password || '';
+  if (!id || !pwd) return null;
+  const { data, error } = await supabase.auth.signInWithPassword({ email: loginIdToEmail(id), password: pwd });
+  if (error || !data.user) return null;
+  return sessionFromSupabaseUser(data.user);
+};
+
+export const signOut = async (): Promise<void> => {
+  await supabase.auth.signOut();
+};
+
+// ---------- Leitura de dados (RLS já escopa o que cada perfil enxerga) ----------
+const rowToCompany = (r: any): Company => ({
+  id: r.id, razaoSocial: r.razao_social, nomeFantasia: r.nome_fantasia, cnpj: r.cnpj, tipo: r.tipo,
+  endereco: r.endereco || undefined, foroComarca: r.foro_comarca || undefined, clientPassword: '',
+});
+const rowToPartner = (r: any): Partner => ({
+  id: r.id, name: r.name, cpf: r.cpf, participation: Number(r.participation), companyIds: r.company_ids || [],
+  endereco: r.endereco || undefined,
+});
+const rowToBankAccount = (r: any): BankAccount => ({
+  id: r.id, ownerId: r.owner_id, ownerType: r.owner_type, bankName: r.bank_name, agency: r.agency || '',
+  accountNumber: r.account_number, type: r.type,
+});
+const rowToTransaction = (r: any): Transaction => ({
+  id: r.id, date: r.date, companyId: r.company_id, partnerId: r.partner_id || undefined,
+  originAccountId: r.origin_account_id, destinationAccountId: r.destination_account_id,
+  value: Number(r.value), type: r.type as TransactionType, nature: r.nature || undefined, description: r.description || '',
+});
+const rowToMutuo = (r: any): Mutuo => ({
+  id: r.id, companyId: r.company_id, partnerId: r.partner_id, direction: r.direction, socioTipo: r.socio_tipo,
+  value: Number(r.value), releaseDate: r.release_date, firstInstallmentDate: r.first_installment_date || undefined,
+  dueDate: r.due_date, parcelas: r.parcelas, annualInterestPct: Number(r.annual_interest_pct), observacao: r.observacao || undefined,
+});
+const rowToAccessUser = (r: any): AccessUser => ({
+  id: r.id, name: r.name, cpf: r.cpf, email: r.email || '', phone: r.phone || '', role: r.role, password: '',
+});
+
+export const fetchAppData = async (): Promise<AppData> => {
+  const [companies, partners, bankAccounts, transactions, mutuos, users] = await Promise.all([
+    supabase.from('companies').select('*'),
+    supabase.from('partners').select('*'),
+    supabase.from('bank_accounts').select('*'),
+    supabase.from('transactions').select('*'),
+    supabase.from('mutuos').select('*'),
+    supabase.from('access_users').select('*'),
+  ]);
+  for (const r of [companies, partners, bankAccounts, transactions, mutuos]) {
+    if (r.error) throw r.error;
+  }
+  // access_users é restrita a admin pela RLS — erro de permissão aqui é esperado p/ analyst/client.
+  return {
+    companies: (companies.data || []).map(rowToCompany),
+    partners: (partners.data || []).map(rowToPartner),
+    bankAccounts: (bankAccounts.data || []).map(rowToBankAccount),
+    transactions: (transactions.data || []).map(rowToTransaction),
+    mutuos: (mutuos.data || []).map(rowToMutuo),
+    access: { users: (users.data || []).map(rowToAccessUser) },
+  };
+};
+
+// ---------- Escrita: diff entre o AppData sincronizado e o novo, aplicado à distância ----------
+const diffById = <T extends { id: string }>(prev: T[], next: T[]) => {
+  const prevMap = new Map(prev.map(x => [x.id, x]));
+  const upserts = next.filter(x => JSON.stringify(prevMap.get(x.id)) !== JSON.stringify(x));
+  const nextIds = new Set(next.map(x => x.id));
+  const deletedIds = prev.filter(x => !nextIds.has(x.id)).map(x => x.id);
+  return { upserts, deletedIds };
+};
+
+const invokeAdminFn = async (name: string, body: unknown) => {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (error) throw error;
+  return data;
+};
+
+// Sincroniza companies/partners/bankAccounts/transactions/mutuos direto nas tabelas (RLS
+// já garante que só admin/analyst escrevem) e roteia o que mexe em auth.users (usuários de
+// acesso, senha de empresa) para as Edge Functions com service-role.
+export const syncAppData = async (prev: AppData, next: AppData): Promise<void> => {
+  const companiesDiff = diffById(
+    prev.companies.map(c => ({ ...c, clientPassword: '' })),
+    next.companies.map(c => ({ ...c, clientPassword: '' })),
+  );
+  if (companiesDiff.upserts.length) {
+    await supabase.from('companies').upsert(companiesDiff.upserts.map(c => ({
+      id: c.id, razao_social: c.razaoSocial, nome_fantasia: c.nomeFantasia, cnpj: c.cnpj, tipo: c.tipo,
+      endereco: c.endereco || null, foro_comarca: c.foroComarca || null,
+    })));
+  }
+  for (const id of companiesDiff.deletedIds) await supabase.from('companies').delete().eq('id', id);
+
+  for (const c of next.companies) {
+    if (c.clientPassword) {
+      await invokeAdminFn('admin-set-company-password', { companyId: c.id, cnpj: c.cnpj, password: c.clientPassword });
     }
   }
-  return initialData;
-};
 
-export const saveData = (data: AppData) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-};
+  const partnersDiff = diffById(prev.partners, next.partners);
+  if (partnersDiff.upserts.length) {
+    await supabase.from('partners').upsert(partnersDiff.upserts.map(p => ({
+      id: p.id, name: p.name, cpf: p.cpf, participation: p.participation, company_ids: p.companyIds, endereco: p.endereco || null,
+    })));
+  }
+  for (const id of partnersDiff.deletedIds) await supabase.from('partners').delete().eq('id', id);
 
-// ---------- Autenticação (trava simples baseada em senhas do localStorage) ----------
-export const loadSession = (): Session | null => {
-  const raw = localStorage.getItem(SESSION_KEY);
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
-};
+  const accountsDiff = diffById(prev.bankAccounts, next.bankAccounts);
+  if (accountsDiff.upserts.length) {
+    await supabase.from('bank_accounts').upsert(accountsDiff.upserts.map(a => ({
+      id: a.id, owner_id: a.ownerId, owner_type: a.ownerType, bank_name: a.bankName, agency: a.agency || null,
+      account_number: a.accountNumber, type: a.type,
+    })));
+  }
+  for (const id of accountsDiff.deletedIds) await supabase.from('bank_accounts').delete().eq('id', id);
 
-export const saveSession = (s: Session | null) => {
-  if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
-  else localStorage.removeItem(SESSION_KEY);
-};
+  const txDiff = diffById(prev.transactions, next.transactions);
+  if (txDiff.upserts.length) {
+    await supabase.from('transactions').upsert(txDiff.upserts.map(t => ({
+      id: t.id, date: t.date, company_id: t.companyId, partner_id: t.partnerId || null,
+      origin_account_id: t.originAccountId, destination_account_id: t.destinationAccountId,
+      value: t.value, type: t.type, nature: t.nature || null, description: t.description || null,
+    })));
+  }
+  for (const id of txDiff.deletedIds) await supabase.from('transactions').delete().eq('id', id);
 
-export const hasAnyPassword = (data: AppData): boolean => {
-  const access = data.access || {};
-  return !!(access.adminPassword || access.analystPassword) || data.companies.some(c => !!c.clientPassword);
-};
+  const mutuosDiff = diffById(prev.mutuos || [], next.mutuos || []);
+  if (mutuosDiff.upserts.length) {
+    await supabase.from('mutuos').upsert(mutuosDiff.upserts.map(m => ({
+      id: m.id, company_id: m.companyId, partner_id: m.partnerId, direction: m.direction, socio_tipo: m.socioTipo,
+      value: m.value, release_date: m.releaseDate, first_installment_date: m.firstInstallmentDate || null,
+      due_date: m.dueDate, parcelas: m.parcelas, annual_interest_pct: m.annualInterestPct, observacao: m.observacao || null,
+    })));
+  }
+  for (const id of mutuosDiff.deletedIds) await supabase.from('mutuos').delete().eq('id', id);
 
-export const authenticate = (data: AppData, password: string): Session | null => {
-  // Configuração inicial: sem nenhuma senha cadastrada, libera como Administrador
-  // para que seja possível definir as senhas dentro do app.
-  if (!hasAnyPassword(data)) return { role: 'admin', label: 'Administrador' };
-  const pwd = (password || '').trim();
-  if (!pwd) return null;
-  const access = data.access || {};
-  if (access.adminPassword && pwd === access.adminPassword) return { role: 'admin', label: 'Administrador' };
-  if (access.analystPassword && pwd === access.analystPassword) return { role: 'analyst', label: 'Analista Contábil' };
-  const comp = data.companies.find(c => c.clientPassword && c.clientPassword === pwd);
-  if (comp) return { role: 'client', companyId: comp.id, label: comp.nomeFantasia };
-  return null;
-};
-
-// Cliente enxerga apenas a própria empresa (dados filtrados para leitura).
-export const scopeDataForSession = (data: AppData, session: Session | null): AppData => {
-  if (!session || session.role !== 'client' || !session.companyId) return data;
-  const cid = session.companyId;
-  const partners = data.partners.filter(p => (p.companyIds || []).includes(cid));
-  const partnerIds = new Set(partners.map(p => p.id));
-  return {
-    ...data,
-    companies: data.companies.filter(c => c.id === cid),
-    partners,
-    bankAccounts: data.bankAccounts.filter(a =>
-      (a.ownerType === 'COMPANY' && a.ownerId === cid) ||
-      (a.ownerType === 'PARTNER' && partnerIds.has(a.ownerId))
-    ),
-    transactions: data.transactions.filter(t => t.companyId === cid),
-    mutuos: (data.mutuos || []).filter(m => m.companyId === cid),
-  };
+  // Usuários de acesso: toda escrita passa pela Edge Function (só ela tem service-role p/ auth.users).
+  const usersDiff = diffById(
+    (prev.access?.users || []).map(u => ({ ...u, password: '' })),
+    (next.access?.users || []).map(u => ({ ...u, password: '' })),
+  );
+  const prevUserIds = new Set((prev.access?.users || []).map(u => u.id));
+  for (const u of next.access?.users || []) {
+    const changed = usersDiff.upserts.some(x => x.id === u.id);
+    if (!changed) continue;
+    if (prevUserIds.has(u.id)) {
+      await invokeAdminFn('admin-update-user', {
+        id: u.id, name: u.name, cpf: u.cpf, email: u.email, phone: u.phone, role: u.role,
+        password: u.password || undefined,
+      });
+    } else {
+      await invokeAdminFn('admin-create-user', {
+        name: u.name, cpf: u.cpf, email: u.email, phone: u.phone, role: u.role, password: u.password,
+      });
+    }
+  }
+  for (const id of usersDiff.deletedIds) await invokeAdminFn('admin-delete-user', { id });
 };
 
 export const calculateCompanyBalance = (companyId: string, transactions: Transaction[]): number => {

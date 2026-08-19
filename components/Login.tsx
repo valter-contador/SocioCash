@@ -1,31 +1,33 @@
 
 import React, { useState } from 'react';
-import { Lock, LogIn, AlertCircle, Eye, EyeOff } from 'lucide-react';
-import { AppData, Session } from '../types';
+import { Lock, LogIn, AlertCircle, Eye, EyeOff, UserSquare2 } from 'lucide-react';
+import { Session } from '../types';
 import { authenticate } from '../dataService';
 
 interface LoginProps {
-  data: AppData;
   onLogin: (session: Session) => void;
 }
 
-const Login: React.FC<LoginProps> = ({ data, onLogin }) => {
+const Login: React.FC<LoginProps> = ({ onLogin }) => {
+  const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const noPasswordsConfigured =
-    !(data.access?.adminPassword || data.access?.analystPassword) &&
-    !data.companies.some(c => c.clientPassword);
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const session = authenticate(data, password);
-    if (session) {
-      setError('');
-      onLogin(session);
-    } else {
-      setError('Senha inválida. Verifique com o administrador.');
+    setLoading(true);
+    try {
+      const session = await authenticate(loginId, password);
+      if (session) {
+        setError('');
+        onLogin(session);
+      } else {
+        setError('CPF/CNPJ ou senha inválidos. Verifique com o administrador.');
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -49,7 +51,22 @@ const Login: React.FC<LoginProps> = ({ data, onLogin }) => {
         <form onSubmit={handleSubmit} className="bg-white rounded-[2rem] border border-slate-200 shadow-xl p-8 space-y-6">
           <div className="text-center">
             <h2 className="text-xl font-black text-slate-800 tracking-tight">Acesso Restrito</h2>
-            <p className="text-sm text-slate-400 font-medium mt-1">Informe sua senha de acesso</p>
+            <p className="text-sm text-slate-400 font-medium mt-1">Informe seu CPF/CNPJ e senha de acesso</p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+              <UserSquare2 size={12} className="text-[#2B589A]" /> CPF (equipe) ou CNPJ (empresa)
+            </label>
+            <input
+              autoFocus
+              type="text"
+              inputMode="numeric"
+              className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold font-mono"
+              placeholder="000.000.000-00 ou 00.000.000/0000-00"
+              value={loginId}
+              onChange={e => { setLoginId(e.target.value); setError(''); }}
+            />
           </div>
 
           <div className="space-y-2">
@@ -58,7 +75,6 @@ const Login: React.FC<LoginProps> = ({ data, onLogin }) => {
             </label>
             <div className="relative">
               <input
-                autoFocus
                 type={show ? 'text' : 'password'}
                 className="w-full p-4 pr-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-[1.25rem] outline-none focus:ring-2 focus:ring-[#2B589A] transition-all font-bold"
                 placeholder="••••••••"
@@ -82,21 +98,16 @@ const Login: React.FC<LoginProps> = ({ data, onLogin }) => {
             </div>
           )}
 
-          {noPasswordsConfigured && (
-            <div className="text-[12px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-3 font-medium leading-relaxed">
-              <strong>Configuração inicial:</strong> nenhuma senha foi cadastrada ainda. Clique em <strong>Entrar</strong> para acessar como Administrador e definir as senhas em <strong>Empresas → Controle de Acesso</strong>.
-            </div>
-          )}
-
           <button
             type="submit"
-            className="w-full py-4 bg-[#2B589A] text-white font-black rounded-[1.25rem] hover:bg-[#1E3F6D] shadow-lg shadow-[#2B589A]/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            disabled={loading}
+            className="w-full py-4 bg-[#2B589A] text-white font-black rounded-[1.25rem] hover:bg-[#1E3F6D] shadow-lg shadow-[#2B589A]/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            <LogIn size={18} /> {noPasswordsConfigured ? 'Entrar (configuração inicial)' : 'Entrar'}
+            <LogIn size={18} /> {loading ? 'Entrando...' : 'Entrar'}
           </button>
 
           <p className="text-[10px] text-slate-400 text-center leading-relaxed">
-            Perfis: Administrador e Analista Contábil (senhas globais) · Cliente (senha da própria empresa).
+            Equipe (Administrador/Analista): login com CPF + senha. Empresa cliente: login com CNPJ + senha.
           </p>
         </form>
 
