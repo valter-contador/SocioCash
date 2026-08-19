@@ -1,13 +1,13 @@
 
-import React, { useMemo } from 'react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
+import React, { useMemo, useState } from 'react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
   Cell,
   LineChart,
   Line,
@@ -15,25 +15,45 @@ import {
   AreaChart,
   Area
 } from 'recharts';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  DollarSign, 
-  Users, 
+import {
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Users,
   Building2,
-  Calendar
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  HandCoins
 } from 'lucide-react';
-import { AppData, TransactionType } from '../types';
+import { AppData, TransactionType, TransactionNature } from '../types';
 import { formatCurrency } from '../dataService';
 
 interface DashboardProps {
   data: AppData;
 }
 
+const MESES = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
+];
+
 const Dashboard: React.FC<DashboardProps> = ({ data }) => {
   const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
+  const [competencia, setCompetencia] = useState({ month: now.getMonth(), year: now.getFullYear() });
+  const { month: currentMonth, year: currentYear } = competencia;
+
+  // Não permite navegar para competências futuras (mês corrente é o limite).
+  const isCurrentMonth = currentMonth === now.getMonth() && currentYear === now.getFullYear();
+  const goToMonth = (delta: number) => {
+    setCompetencia(prev => {
+      const total = prev.month + delta;
+      const year = prev.year + Math.floor(total / 12);
+      const month = ((total % 12) + 12) % 12;
+      if (year > now.getFullYear() || (year === now.getFullYear() && month > now.getMonth())) return prev;
+      return { month, year };
+    });
+  };
 
   const stats = useMemo(() => {
     const totalCredits = data.transactions
@@ -57,11 +77,15 @@ const Dashboard: React.FC<DashboardProps> = ({ data }) => {
       .filter(t => t.type === TransactionType.DEBIT)
       .reduce((sum, t) => sum + t.value, 0);
 
+    const monthLucroPago = monthTransactions
+      .filter(t => t.nature === TransactionNature.RETIRADA_LUCROS)
+      .reduce((sum, t) => sum + t.value, 0);
+
     return {
       totalBalance: totalCredits - totalDebits,
       monthCredits,
       monthDebits,
-      monthNet: monthCredits - monthDebits,
+      monthLucroPago,
       companiesCount: data.companies.length,
       partnersCount: data.partners.length
     };
@@ -121,9 +145,26 @@ const Dashboard: React.FC<DashboardProps> = ({ data }) => {
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">Painel Executivo</h2>
           <p className="text-slate-500 font-medium">Análise do Caixa Societário</p>
         </div>
-        <div className="px-4 py-2 bg-white border border-slate-200 rounded-2xl shadow-sm flex items-center gap-3">
-          <Calendar className="text-[#2B589A]" size={18} />
-          <span className="text-sm font-bold text-slate-700">{new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(now)}</span>
+        <div className="px-2 py-2 bg-white border border-slate-200 rounded-2xl shadow-sm flex items-center gap-1">
+          <button
+            onClick={() => goToMonth(-1)}
+            className="p-1.5 text-slate-400 hover:text-[#2B589A] hover:bg-slate-50 rounded-lg transition-colors"
+            title="Competência anterior"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <div className="flex items-center gap-2 px-2 min-w-[150px] justify-center">
+            <Calendar className="text-[#2B589A]" size={18} />
+            <span className="text-sm font-bold text-slate-700 capitalize">{`${MESES[currentMonth]} de ${currentYear}`}</span>
+          </div>
+          <button
+            onClick={() => goToMonth(1)}
+            disabled={isCurrentMonth}
+            className="p-1.5 text-slate-400 hover:text-[#2B589A] hover:bg-slate-50 rounded-lg transition-colors disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-slate-400 disabled:cursor-not-allowed"
+            title="Próxima competência"
+          >
+            <ChevronRight size={16} />
+          </button>
         </div>
       </div>
 
@@ -148,10 +189,10 @@ const Dashboard: React.FC<DashboardProps> = ({ data }) => {
           icon={<TrendingDown className="text-rose-600" />} 
           trend="down"
         />
-        <StatCard 
-          label="Saldo Líquido" 
-          value={formatCurrency(stats.monthNet)} 
-          icon={<Calendar className="text-[#00BCD4]" />} 
+        <StatCard
+          label="Lucro Pago (Competência)"
+          value={formatCurrency(stats.monthLucroPago)}
+          icon={<HandCoins className="text-[#00BCD4]" />}
         />
       </div>
 
