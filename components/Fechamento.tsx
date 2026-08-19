@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info, Building2, Filter, FileText, FileSpreadsheet, Handshake } from 'lucide-react';
 import { AppData, Transaction, TransactionType, TransactionNature, NATURE_ORDER, NATURE_META } from '../types';
@@ -48,6 +48,12 @@ const Fechamento: React.FC<FechamentoProps> = ({ data, canManage }) => {
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+
+  // Cliente só enxerga a própria empresa (RLS já restringe data.companies a 1 item) —
+  // seleciona automaticamente, sem exibir o combo de escolha.
+  useEffect(() => {
+    if (!canManage && data.companies.length > 0) setSelectedCompanyId(data.companies[0].id);
+  }, [canManage, data.companies]);
 
   // Leva à aba Mútuos com o cadastro pré-preenchido pelo saldo devedor
   // (a taxa SELIC é obrigatória e digitada pelo usuário lá).
@@ -214,14 +220,21 @@ const Fechamento: React.FC<FechamentoProps> = ({ data, canManage }) => {
       <div className="bg-white p-6 lg:p-8 rounded-[2rem] border border-slate-200 shadow-sm flex flex-wrap gap-6 items-end">
         <div className="flex-1 min-w-[260px] space-y-2">
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Empresa</label>
-          <select
-            className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-[#2B589A] font-bold transition-all"
-            value={selectedCompanyId}
-            onChange={e => setSelectedCompanyId(e.target.value)}
-          >
-            <option value="">Selecionar empresa...</option>
-            {data.companies.map(c => <option key={c.id} value={c.id}>{c.nomeFantasia}</option>)}
-          </select>
+          {canManage ? (
+            <select
+              className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-[#2B589A] font-bold transition-all"
+              value={selectedCompanyId}
+              onChange={e => setSelectedCompanyId(e.target.value)}
+            >
+              <option value="">Selecionar empresa...</option>
+              {data.companies.map(c => <option key={c.id} value={c.id}>{c.nomeFantasia}</option>)}
+            </select>
+          ) : (
+            <div className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl font-bold flex items-center gap-2">
+              <Building2 size={16} className="text-[#2B589A]" />
+              {company?.nomeFantasia || '—'}
+            </div>
+          )}
         </div>
         <div className="space-y-2">
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Período de Competência</label>

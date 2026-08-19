@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { FileText, Download, Filter, Building2, Calendar, ChevronDown, ChevronUp, CheckCircle2, Info } from 'lucide-react';
 import { AppData, TransactionType } from '../types';
 import { formatCurrency, formatDateBR } from '../dataService';
@@ -7,12 +7,19 @@ import { exportRelatorioPdf } from '../exportService';
 
 interface ReportsProps {
   data: AppData;
+  canManage?: boolean;
 }
 
-const Reports: React.FC<ReportsProps> = ({ data }) => {
+const Reports: React.FC<ReportsProps> = ({ data, canManage }) => {
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+
+  // Cliente só enxerga a própria empresa (RLS já restringe data.companies a 1 item) —
+  // seleciona automaticamente, sem exibir o combo de escolha.
+  useEffect(() => {
+    if (!canManage && data.companies.length > 0) setSelectedCompanyId(data.companies[0].id);
+  }, [canManage, data.companies]);
 
   const months = [
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -108,14 +115,21 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
       <div className="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm flex flex-wrap gap-6 items-end">
         <div className="flex-1 min-w-[280px] space-y-2">
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Entidade Selecionada</label>
-          <select 
-            className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-[#2B589A] font-bold transition-all"
-            value={selectedCompanyId}
-            onChange={e => setSelectedCompanyId(e.target.value)}
-          >
-            <option value="">Buscar empresa...</option>
-            {data.companies.map(c => <option key={c.id} value={c.id}>{c.nomeFantasia}</option>)}
-          </select>
+          {canManage ? (
+            <select
+              className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-[#2B589A] font-bold transition-all"
+              value={selectedCompanyId}
+              onChange={e => setSelectedCompanyId(e.target.value)}
+            >
+              <option value="">Buscar empresa...</option>
+              {data.companies.map(c => <option key={c.id} value={c.id}>{c.nomeFantasia}</option>)}
+            </select>
+          ) : (
+            <div className="w-full p-4 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl font-bold flex items-center gap-2">
+              <Building2 size={16} className="text-[#2B589A]" />
+              {data.companies.find(c => c.id === selectedCompanyId)?.nomeFantasia || '—'}
+            </div>
+          )}
         </div>
         <div className="w-full sm:w-auto space-y-2">
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Período Fiscal</label>

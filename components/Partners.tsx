@@ -56,6 +56,14 @@ const Partners: React.FC<PartnersProps> = ({ data, onUpdate }) => {
     setFormData({...formData, companyIds: current});
   };
 
+  // Vínculo de empresa editável também para sócio já cadastrado (antes só dava pra
+  // definir na criação — sem isso não tinha como corrigir um sócio esquecido).
+  const handleTogglePartnerCompanyLink = (partner: Partner, companyId: string) => {
+    const current = partner.companyIds || [];
+    const next = current.includes(companyId) ? current.filter(id => id !== companyId) : [...current, companyId];
+    updatePartner(partner.id, { companyIds: next });
+  };
+
   const handleDeletePartner = (id: string) => {
     if (confirm('Deseja excluir este sócio?')) {
       onUpdate({
@@ -194,15 +202,24 @@ const Partners: React.FC<PartnersProps> = ({ data, onUpdate }) => {
               <div className="mt-4">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">Vínculos Jurídicos</p>
                 <div className="flex flex-wrap gap-2">
-                  {partner.companyIds.map(cid => {
-                    const comp = data.companies.find(c => c.id === cid);
-                    return comp ? (
-                      <span key={cid} className="text-[10px] bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-bold">
-                        {comp.nomeFantasia}
-                      </span>
-                    ) : null;
+                  {data.companies.map(c => {
+                    const linked = (partner.companyIds || []).includes(c.id);
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => handleTogglePartnerCompanyLink(partner, c.id)}
+                        className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                          linked
+                            ? 'bg-[#2B589A] text-white border-[#2B589A]'
+                            : 'bg-white text-slate-400 border-slate-200 hover:border-[#2B589A]'
+                        }`}
+                      >
+                        {c.nomeFantasia}
+                      </button>
+                    );
                   })}
-                  {partner.companyIds.length === 0 && <span className="text-[10px] text-slate-300 italic font-medium">Nenhuma empresa vinculada</span>}
+                  {data.companies.length === 0 && <span className="text-[10px] text-slate-300 italic font-medium">Nenhuma empresa cadastrada</span>}
                 </div>
               </div>
 
