@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -15,10 +15,12 @@ import {
   ChevronRight,
   MessageSquare,
   LogOut,
-  Handshake
+  Handshake,
+  Loader2
 } from 'lucide-react';
 import { AppData, Session, Role } from './types';
-import { loadData, saveData, loadSession, saveSession, scopeDataForSession } from './dataService';
+import { initialData, getCurrentSession, fetchAppData, syncAppData, signOut } from './dataService';
+import { supabase } from './supabaseClient';
 import Dashboard from './components/Dashboard';
 import Companies from './components/Companies';
 import Partners from './components/Partners';
@@ -54,32 +56,127 @@ const NAV_ICON: Record<string, React.ReactNode> = {
   '/relatorios': <FileText size={20} />,
 };
 
+// Chave estável derivada da sessão — evita re-buscar os dados quando o listener do
+// Supabase dispara de novo para a "mesma" sessão (troca de referência, mesmo conteúdo).
+const sessionKey = (s: Session | null): string =>
+  s ? `${s.role}|${s.companyId || ''}|${s.userId || ''}` : '';
+
 const App: React.FC = () => {
-  const [data, setData] = useState<AppData>(loadData());
-  const [session, setSession] = useState<Session | null>(loadSession());
+  const [session, setSession] = useState<Session | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [data, setData] = useState<AppData>(initialData);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataError, setDataError] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
   const [isSidebarOpen, setSidebarOpen] = useState(window.innerWidth > 1024);
 
+  const syncedDataRef = useRef<AppData>(initialData);
+  const syncTimerRef = useRef<number | undefined>(undefined);
+
+  // Sessão: checagem inicial + escuta de mudanças (login/logout/refresh de token).
   useEffect(() => {
-    saveData(data);
-  }, [data]);
+    let active = true;
+    const syncSession = async () => {
+      const s = await getCurrentSession();
+      if (!active) return;
+      setSession(s);
+      setAuthChecked(true);
+    };
+    syncSession();
+    const { data: sub } = supabase.auth.onAuthStateChange(() => { syncSession(); });
+    return () => { active = false; sub.subscription.unsubscribe(); };
+  }, []);
+
+  // Dados: recarrega do Supabase sempre que a sessão muda de identidade (login/logout/troca de usuário).
+  // Repete uma vez em caso de falha (ex.: token recém-emitido esbarrando em skew de relógio
+  // transitório do lado do servidor logo após o login) antes de mostrar erro com retry manual.
+  useEffect(() => {
+    if (!session) {
+      setData(initialData);
+      syncedDataRef.current = initialData;
+      setDataError(false);
+      return;
+    }
+    let active = true;
+    setDataLoading(true);
+    setDataError(false);
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    (async () => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const d = await fetchAppData();
+          if (!active) return;
+          setData(d);
+          syncedDataRef.current = d;
+          return;
+        } catch (err) {
+          console.error('Falha ao carregar dados do Supabase', err);
+          if (attempt === 0) await sleep(1200);
+        }
+      }
+      if (active) setDataError(true);
+    })().finally(() => { if (active) setDataLoading(false); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey(session), reloadTick]);
 
   const updateData = (newData: AppData) => {
     setData(newData);
+    if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = window.setTimeout(() => {
+      const prev = syncedDataRef.current;
+      syncedDataRef.current = newData;
+      syncAppData(prev, newData).catch(err => {
+        console.error('Falha ao sincronizar com o Supabase', err);
+        syncedDataRef.current = prev; // tenta de novo na próxima alteração
+      });
+    }, 600);
   };
 
-  const handleLogin = (s: Session) => { saveSession(s); setSession(s); };
-  const handleLogout = () => { saveSession(null); setSession(null); };
+  const handleLogin = (s: Session) => setSession(s);
+  const handleLogout = () => { signOut(); setSession(null); };
 
   const toggleSidebar = () => setSidebarOpen(!isSidebarOpen);
 
-  // Sem sessão → tela de login (usa as senhas cadastradas).
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Loader2 className="animate-spin text-[#2B589A]" size={32} />
+      </div>
+    );
+  }
+
+  // Sem sessão → tela de login (Supabase Auth).
   if (!session) {
-    return <Login data={data} onLogin={handleLogin} />;
+    return <Login onLogin={handleLogin} />;
+  }
+
+  if (dataLoading && data === initialData) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-3">
+        <Loader2 className="animate-spin text-[#2B589A]" size={32} />
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Carregando dados...</p>
+      </div>
+    );
+  }
+
+  if (dataError && data === initialData) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-4 px-4 text-center">
+        <p className="text-sm font-bold text-slate-600">Não foi possível carregar os dados agora.</p>
+        <button
+          onClick={() => setReloadTick(t => t + 1)}
+          className="px-6 py-3 bg-[#2B589A] text-white font-black rounded-2xl hover:bg-[#1E3F6D] shadow-lg shadow-[#2B589A]/20"
+        >
+          Tentar novamente
+        </button>
+      </div>
+    );
   }
 
   const role = session.role;
   const canManage = role === 'admin' || role === 'analyst';
-  const scopedData = scopeDataForSession(data, session); // cliente vê só a própria empresa
+  // RLS no Supabase já restringe o que a query devolve p/ perfil "client" — não precisa filtrar de novo aqui.
   const navItems = NAV.filter(n => n.roles.includes(role));
 
   return (
@@ -87,7 +184,7 @@ const App: React.FC = () => {
       <div className="flex h-screen bg-slate-50 overflow-hidden">
         {/* Mobile Backdrop */}
         {isSidebarOpen && (
-          <div 
+          <div
             className="fixed inset-0 bg-[#2B589A]/20 backdrop-blur-sm z-30 lg:hidden"
             onClick={toggleSidebar}
           />
@@ -114,7 +211,7 @@ const App: React.FC = () => {
                   Soluções Contábeis
                 </p>
               </div>
-              <button 
+              <button
                 onClick={toggleSidebar}
                 className="lg:hidden p-2 text-slate-400 hover:text-[#2B589A]"
               >
@@ -164,7 +261,7 @@ const App: React.FC = () => {
         <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${isSidebarOpen ? 'lg:ml-72' : 'lg:ml-0'}`}>
           {/* Header Bar */}
           <header className="h-16 bg-white border-b border-slate-200 flex items-center px-4 lg:px-8 shrink-0 shadow-sm z-20">
-            <button 
+            <button
               onClick={toggleSidebar}
               className="p-2 text-slate-500 hover:bg-slate-50 rounded-lg transition-colors"
               title={isSidebarOpen ? "Fechar menu" : "Abrir menu"}
@@ -175,7 +272,7 @@ const App: React.FC = () => {
             <div className="ml-4 hidden sm:block">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">SócioCash - Gestão de Caixa Societário</span>
             </div>
-            
+
             <div className="ml-auto flex items-center gap-4">
               <div className="hidden md:flex flex-col items-end">
                 <span className="text-[10px] font-bold text-[#2B589A] leading-tight">JC BUARQUE</span>
@@ -191,17 +288,17 @@ const App: React.FC = () => {
           <main className="flex-1 overflow-y-auto bg-slate-50 relative">
             <div className="p-4 lg:p-8 max-w-7xl mx-auto w-full">
               <Routes>
-                <Route path="/" element={<Dashboard data={scopedData} />} />
+                <Route path="/" element={<Dashboard data={data} />} />
                 {canManage && <Route path="/empresas" element={<Companies data={data} onUpdate={updateData} role={role} />} />}
                 {canManage && <Route path="/socios" element={<Partners data={data} onUpdate={updateData} />} />}
                 {canManage && <Route path="/transacoes" element={<Transactions data={data} onUpdate={updateData} />} />}
                 {canManage && <Route path="/mutuos" element={<Mutuos data={data} onUpdate={updateData} />} />}
-                <Route path="/fechamento" element={<Fechamento data={scopedData} canManage={canManage} />} />
-                <Route path="/relatorios" element={<Reports data={scopedData} />} />
+                <Route path="/fechamento" element={<Fechamento data={data} canManage={canManage} />} />
+                <Route path="/relatorios" element={<Reports data={data} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </div>
-            
+
             {/* Discret Logo Overlay */}
             <div className="fixed bottom-4 right-4 opacity-10 pointer-events-none select-none">
                 <h2 className="text-2xl font-black text-[#2B589A]">JCBUARQUE</h2>
@@ -229,8 +326,8 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, onClick }) =
       to={to}
       onClick={onClick}
       className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all duration-200 ${
-        isActive 
-          ? 'bg-[#2B589A] text-white shadow-lg shadow-[#2B589A]/30 font-bold scale-[1.02]' 
+        isActive
+          ? 'bg-[#2B589A] text-white shadow-lg shadow-[#2B589A]/30 font-bold scale-[1.02]'
           : 'text-slate-500 hover:bg-slate-50 hover:text-[#2B589A]'
       }`}
     >

@@ -64,11 +64,26 @@ export interface Company {
   foroComarca?: string;    // Comarca do foro (usado no contrato de mútuo)
 }
 
+// Usuário da equipe JC Buarque (Administrador ou Analista Contábil).
+// Login pelo CPF + senha cadastrada.
+export interface AccessUser {
+  id: string;
+  name: string;
+  cpf: string;   // usado como login
+  email: string;
+  phone: string;
+  role: 'admin' | 'analyst';
+  password: string;
+}
+
 // Controle de acesso GLOBAL (equipe JC Buarque). Observação: app sem backend —
 // senhas ficam no localStorage e NÃO são segurança real, apenas uma trava simples.
 export interface AccessConfig {
-  adminPassword?: string;   // Administrador
-  analystPassword?: string; // Analista Contábil
+  users?: AccessUser[];     // Administradores e Analistas cadastrados (login por CPF)
+  /** @deprecated substituído por `users` — mantido só para não quebrar dados antigos já salvos */
+  adminPassword?: string;
+  /** @deprecated substituído por `users` — mantido só para não quebrar dados antigos já salvos */
+  analystPassword?: string;
 }
 
 export interface Partner {
@@ -122,6 +137,7 @@ export type Role = 'admin' | 'analyst' | 'client';
 export interface Session {
   role: Role;
   companyId?: string; // definido quando o perfil é cliente (escopo da empresa)
+  userId?: string;    // definido quando o perfil é admin/analyst (id do AccessUser)
   label: string;      // rótulo exibido (nome do perfil ou da empresa)
 }
 
