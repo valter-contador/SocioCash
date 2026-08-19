@@ -105,69 +105,145 @@ export const exportFechamentoXlsx = (d: FechamentoExport) => {
 };
 
 // ---------- PDF ----------
-export const exportFechamentoPdf = (d: FechamentoExport) => {
+// Cores espelhando a paleta usada na tela de Fechamento (Tailwind emerald/rose/slate).
+const PDF_COLORS = {
+  emeraldBg: [236, 253, 245] as [number, number, number],
+  emeraldText: [5, 150, 105] as [number, number, number],
+  roseBg: [255, 241, 242] as [number, number, number],
+  roseText: [225, 29, 72] as [number, number, number],
+  slateBg: [248, 250, 252] as [number, number, number],
+  slateBorder: [226, 232, 240] as [number, number, number],
+  slateText: [100, 116, 139] as [number, number, number],
+  ink: [30, 41, 59] as [number, number, number],
+  brand: [43, 88, 154] as [number, number, number],
+};
+
+export const buildFechamentoDoc = (d: FechamentoExport): jsPDF => {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const marginX = 40;
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const maxW = pageW - 2 * marginX;
   let y = 48;
+  const ensure = (space: number) => { if (y + space > pageH - 36) { doc.addPage(); y = 40; } };
 
-  doc.setFontSize(16); doc.setTextColor('#2B589A'); doc.setFont('helvetica', 'bold');
+  // Caixa colorida com título pequeno + valor em destaque (usada nos resumos entradas/saídas/IRRF).
+  const drawStatBox = (x: number, w: number, h: number, label: string, value: string, bg: [number, number, number], fg: [number, number, number]) => {
+    doc.setFillColor(...bg);
+    doc.roundedRect(x, y, w, h, 8, 8, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.setTextColor(...fg);
+    doc.text(label.toUpperCase(), x + 10, y + 14);
+    doc.setFontSize(11);
+    doc.text(value, x + 10, y + h - 12);
+    doc.setTextColor(...(PDF_COLORS.ink));
+  };
+
+  const drawBadge = (text: string, rightX: number, cy: number, bg: [number, number, number], fg: [number, number, number]) => {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+    const w = doc.getTextWidth(text) + 16;
+    doc.setFillColor(...bg);
+    doc.roundedRect(rightX - w, cy - 9, w, 16, 8, 8, 'F');
+    doc.setTextColor(...fg);
+    doc.text(text, rightX - w / 2, cy + 1.5, { align: 'center' });
+    doc.setTextColor(...(PDF_COLORS.ink));
+  };
+
+  doc.setFontSize(16); doc.setTextColor(...(PDF_COLORS.brand)); doc.setFont('helvetica', 'bold');
   doc.text('Fechamento por Empresa', marginX, y);
   y += 20;
-  doc.setFontSize(10); doc.setTextColor('#334155'); doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10); doc.setTextColor(...(PDF_COLORS.slateText)); doc.setFont('helvetica', 'normal');
   doc.text(`${d.companyFantasia} — ${d.companyRazao}`, marginX, y);
   y += 14;
   doc.text(`Competência: ${d.periodo}`, marginX, y);
-  y += 10;
+  y += 22;
 
   d.extracts.forEach(ext => {
-    const body: (string)[][] = [];
+    ensure(56);
+    // Cabeçalho do sócio (nome + CPF + badge de IRRF), espelha o card da tela.
+    doc.setFillColor(...(PDF_COLORS.slateBg));
+    doc.roundedRect(marginX, y, maxW, 40, 8, 8, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...(PDF_COLORS.ink));
+    doc.text(ext.partnerName, marginX + 14, y + 17);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...(PDF_COLORS.slateText));
+    doc.text(`CPF ${ext.partnerCpf || '—'}`, marginX + 14, y + 30);
+    if (ext.irrf > 0) drawBadge(`IRRF ${formatCurrency(ext.irrf)}`, marginX + maxW - 14, y + 20, PDF_COLORS.roseBg, PDF_COLORS.roseText);
+    else drawBadge('SEM IRRF', marginX + maxW - 14, y + 20, PDF_COLORS.emeraldBg, PDF_COLORS.emeraldText);
+    y += 50;
+
+    // Lançamentos agrupados por natureza — barra com subtotal colorido + lista enxuta.
     ext.groups.forEach(g => {
-      g.txs.forEach(t => {
-        body.push([
-          fmtDate(t.date),
-          t.description || 'Sem observações',
-          g.natureLabel,
-          g.isCredit ? formatCurrency(t.value) : '',
-          g.isCredit ? '' : formatCurrency(t.value)
-        ]);
+      ensure(28);
+      const fg: [number, number, number] = g.isCredit ? PDF_COLORS.emeraldText : PDF_COLORS.roseText;
+      doc.setFillColor(...(PDF_COLORS.slateBg));
+      doc.rect(marginX, y, maxW, 18, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...(PDF_COLORS.ink));
+      doc.text(g.natureLabel.toUpperCase(), marginX + 8, y + 12);
+      doc.setTextColor(...fg);
+      doc.text(`${g.isCredit ? '+' : '-'} ${formatCurrency(g.subtotal)}`, marginX + maxW - 8, y + 12, { align: 'right' });
+      doc.setTextColor(...(PDF_COLORS.ink));
+      y += 18;
+
+      autoTable(doc, {
+        startY: y,
+        body: g.txs.map(t => [fmtDate(t.date), t.description || 'Sem observações', `${g.isCredit ? '+' : '-'} ${formatCurrency(t.value)}`]),
+        theme: 'plain',
+        styles: { fontSize: 8, cellPadding: { top: 3, bottom: 3, left: 8, right: 8 }, textColor: [71, 85, 105] },
+        columnStyles: {
+          0: { cellWidth: 70, fontStyle: 'bold', textColor: [100, 116, 139] },
+          2: { cellWidth: 90, halign: 'right', fontStyle: 'bold', textColor: fg }
+        },
+        didParseCell: data => { if (data.column.index === 1) data.cell.styles.fontStyle = 'italic'; },
+        margin: { left: marginX, right: marginX }
       });
-      body.push(['', '', `Subtotal ${g.natureLabel}`, g.isCredit ? formatCurrency(g.subtotal) : '', g.isCredit ? '' : formatCurrency(g.subtotal)]);
+      // @ts-ignore autotable anexa lastAutoTable
+      y = (doc as any).lastAutoTable.finalY + 6;
     });
 
-    autoTable(doc, {
-      startY: y + 16,
-      head: [[{ content: `Sócio: ${ext.partnerName}  (CPF ${ext.partnerCpf || '—'})`, colSpan: 5, styles: { halign: 'left', fillColor: [43, 88, 154], textColor: 255 } }],
-             ['Data', 'Histórico', 'Natureza', 'Entrada', 'Saída']],
-      body,
-      foot: [
-        [{ content: 'Total Entradas', colSpan: 3, styles: { halign: 'right' } }, formatCurrency(ext.totalEntradas), ''],
-        [{ content: 'Total Saídas', colSpan: 3, styles: { halign: 'right' } }, '', formatCurrency(ext.totalSaidas)],
-        [{ content: `Retirada de Lucros (líquido): ${formatCurrency(ext.lucros)}   |   Base de Cálculo IRRF (+10%): ${formatCurrency(ext.irrfBase)}   |   IRRF (${d.irrfRatePct}%): ${ext.irrf > 0 ? formatCurrency(ext.irrf) : 'Isento (< ' + formatCurrency(d.irrfThreshold) + ')'}`, colSpan: 5, styles: { halign: 'left', textColor: ext.irrf > 0 ? [220, 38, 38] : [100, 116, 139], fontStyle: 'bold' } }]
-      ],
-      styles: { fontSize: 8, cellPadding: 4 },
-      headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85] },
-      footStyles: { fillColor: [248, 250, 252], textColor: [51, 65, 85] },
-      columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' } },
-      margin: { left: marginX, right: marginX }
-    });
-    // @ts-ignore autotable anexa lastAutoTable
-    y = (doc as any).lastAutoTable.finalY + 8;
+    // Resumo do sócio: 3 caixas (Entradas / Saídas / Revisão IRRF), igual à tela.
+    const boxH = 62, gap = 10, boxW = (maxW - gap * 2) / 3;
+    ensure(boxH + 16);
+    drawStatBox(marginX, boxW, boxH, 'Total Entradas', `+ ${formatCurrency(ext.totalEntradas)}`, PDF_COLORS.emeraldBg, PDF_COLORS.emeraldText);
+    drawStatBox(marginX + boxW + gap, boxW, boxH, 'Total Saídas', `- ${formatCurrency(ext.totalSaidas)}`, PDF_COLORS.roseBg, PDF_COLORS.roseText);
+
+    const irrfX = marginX + 2 * (boxW + gap);
+    const irrfBg: [number, number, number] = ext.irrf > 0 ? PDF_COLORS.roseBg : PDF_COLORS.slateBg;
+    doc.setFillColor(...irrfBg);
+    doc.roundedRect(irrfX, y, boxW, boxH, 8, 8, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.setTextColor(...(PDF_COLORS.brand));
+    doc.text('REVISÃO IRRF — LUCROS', irrfX + 10, y + 12);
+    doc.setFontSize(7); doc.setTextColor(...(PDF_COLORS.slateText)); doc.setFont('helvetica', 'normal');
+    doc.text('Lucros (líquido)', irrfX + 10, y + 24);
+    doc.setFont('helvetica', 'bold'); doc.setTextColor(...(PDF_COLORS.ink));
+    doc.text(formatCurrency(ext.lucros), irrfX + boxW - 10, y + 24, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(...(PDF_COLORS.slateText));
+    doc.text('Base Cálc. IRRF (+10%)', irrfX + 10, y + 35);
+    doc.setFont('helvetica', 'bold'); doc.setTextColor(...(PDF_COLORS.ink));
+    doc.text(formatCurrency(ext.irrfBase), irrfX + boxW - 10, y + 35, { align: 'right' });
+    if (ext.irrf > 0) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...(PDF_COLORS.roseText));
+      doc.text(`IRRF (${d.irrfRatePct}%)`, irrfX + 10, y + 50);
+      doc.text(formatCurrency(ext.irrf), irrfX + boxW - 10, y + 50, { align: 'right' });
+    } else {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(...(PDF_COLORS.slateText));
+      doc.text(`Isento (< ${formatCurrency(d.irrfThreshold)})`, irrfX + 10, y + 50);
+    }
+    doc.setTextColor(...(PDF_COLORS.ink));
+    y += boxH + 22;
   });
 
-  autoTable(doc, {
-    startY: y + 12,
-    head: [['Resumo da Empresa', '']],
-    body: [
-      ['Total Entradas', formatCurrency(d.totalEntradas)],
-      ['Total Saídas', formatCurrency(d.totalSaidas)],
-      ['IRRF Previsto Total', formatCurrency(d.totalIrrf)]
-    ],
-    styles: { fontSize: 9, cellPadding: 5 },
-    headStyles: { fillColor: [43, 88, 154], textColor: 255 },
-    columnStyles: { 1: { halign: 'right' } },
-    margin: { left: marginX, right: marginX }
-  });
+  // Resumo da empresa (igual ao card do topo da tela).
+  ensure(70);
+  const sBoxH = 54, sGap = 10, sBoxW = (maxW - sGap * 2) / 3;
+  drawStatBox(marginX, sBoxW, sBoxH, 'Entradas', formatCurrency(d.totalEntradas), PDF_COLORS.emeraldBg, PDF_COLORS.emeraldText);
+  drawStatBox(marginX + sBoxW + sGap, sBoxW, sBoxH, 'Saídas', formatCurrency(d.totalSaidas), PDF_COLORS.roseBg, PDF_COLORS.roseText);
+  drawStatBox(marginX + 2 * (sBoxW + sGap), sBoxW, sBoxH, 'IRRF Previsto',
+    formatCurrency(d.totalIrrf), d.totalIrrf > 0 ? PDF_COLORS.roseBg : PDF_COLORS.slateBg, d.totalIrrf > 0 ? PDF_COLORS.roseText : PDF_COLORS.slateText);
 
+  return doc;
+};
+
+export const exportFechamentoPdf = (d: FechamentoExport) => {
+  const doc = buildFechamentoDoc(d);
   doc.save(`fechamento-${slug(d.companyFantasia)}-${slug(d.periodo)}.pdf`);
 };
 
@@ -344,18 +420,17 @@ const buildContratoBlocks = (m: MutuoContrato): { blocks: ContratoBlock[]; fileB
   b.push({ kind: 'para', text: 'E, por estarem assim justas e contratadas, as partes assinam o presente instrumento em 2 (duas) vias de igual teor e forma, na presença das testemunhas abaixo.' });
   b.push({ kind: 'spacer' });
   b.push({ kind: 'para', text: `${m.foroComarca || '____________________'}, ${dataExtenso()}.` });
-  // Um espaço maior aqui (3 linhas) para reservar área ao carimbo das assinaturas.
-  b.push({ kind: 'spacer', lines: 3 });
+  b.push({ kind: 'spacer' });
   b.push({ kind: 'signrow', left: 'MUTUANTE', right: 'MUTUÁRIO' });
 
   const fileBase = empresaEhMutuante ? `${slug(m.empresaFantasia)}-para-${slug(m.socioNome)}` : `${slug(m.socioNome)}-para-${slug(m.empresaFantasia)}`;
   return { blocks: b, fileBase };
 };
 
-export const exportMutuoContratoPdf = (m: MutuoContrato) => {
+export const buildMutuoContratoDoc = (m: MutuoContrato): { doc: jsPDF; fileBase: string } => {
   const { blocks, fileBase } = buildContratoBlocks(m);
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-  const margin = 52;
+  const margin = 44;
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const maxW = pageW - 2 * margin;
@@ -392,47 +467,52 @@ export const exportMutuoContratoPdf = (m: MutuoContrato) => {
       const lines = doc.splitTextToSize(bl.text, maxW); ensure(lines.length * 11 + 10);
       doc.text(lines, margin, y); y += lines.length * 11 + 10; doc.setTextColor('#111111');
     } else if (bl.kind === 'heading') {
-      ensure(22); doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.text(bl.text, margin, y); y += 15;
+      ensure(20); doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.text(bl.text, margin, y); y += 13;
     } else if (bl.kind === 'signrow') {
       // Duas colunas lado a lado (MUTUANTE | MUTUÁRIO), sem testemunhas —
       // igual ao modelo revisado pelo jurídico.
-      ensure(50);
+      ensure(40);
       const gap = 30;
       const colW = (maxW - gap) / 2;
       const leftX = margin, rightX = margin + colW + gap;
       doc.setDrawColor('#111111');
       doc.line(leftX, y, leftX + colW, y);
       doc.line(rightX, y, rightX + colW, y);
-      y += 14;
+      y += 13;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
       doc.text(bl.left, leftX + colW / 2, y, { align: 'center' });
       doc.text(bl.right, rightX + colW / 2, y, { align: 'center' });
-      y += 22;
+      y += 18;
     } else if (bl.kind === 'spacer') {
       // Linhas em branco (padrão 2) — espaço para reserva/leitura antes de assinar.
-      y += 14 * (bl.lines ?? 2);
+      y += 13 * (bl.lines ?? 2);
     } else if (bl.kind === 'para-prefix') {
       // Prefixo ("MUTUANTE:"/"MUTUÁRIO:") em negrito, resto do parágrafo normal.
       doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
       const prefixW = doc.getTextWidth(`${bl.prefix} `);
       doc.setFont('helvetica', 'normal');
       const wrapped = wrapWithPrefix(prefixW, bl.rest);
-      ensure(wrapped.length * 14 + 10);
+      ensure(wrapped.length * 13 + 7);
       doc.setFont('helvetica', 'bold');
       doc.text(bl.prefix, margin, y);
       doc.setFont('helvetica', 'normal');
       if (wrapped.length > 0) doc.text(wrapped[0], margin + prefixW, y);
       if (wrapped.length > 1) {
-        doc.text(wrapped.slice(1), margin, y + 14, { maxWidth: maxW, align: 'justify' });
+        doc.text(wrapped.slice(1), margin, y + 13, { maxWidth: maxW, align: 'justify' });
       }
-      y += wrapped.length * 14 + 10;
+      y += wrapped.length * 13 + 7;
     } else {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      const lines = doc.splitTextToSize(bl.text, maxW); ensure(lines.length * 14 + 10);
-      doc.text(lines, margin, y, { maxWidth: maxW, align: 'justify' }); y += lines.length * 14 + 10;
+      const lines = doc.splitTextToSize(bl.text, maxW); ensure(lines.length * 13 + 7);
+      doc.text(lines, margin, y, { maxWidth: maxW, align: 'justify' }); y += lines.length * 13 + 7;
     }
   });
 
+  return { doc, fileBase };
+};
+
+export const exportMutuoContratoPdf = (m: MutuoContrato) => {
+  const { doc, fileBase } = buildMutuoContratoDoc(m);
   doc.save(`contrato-mutuo-${fileBase}.pdf`);
 };
 

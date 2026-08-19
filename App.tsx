@@ -16,6 +16,7 @@ import {
   MessageSquare,
   LogOut,
   Handshake,
+  UserCog,
   Loader2
 } from 'lucide-react';
 import { AppData, Session, Role } from './types';
@@ -28,6 +29,7 @@ import Transactions from './components/Transactions';
 import Reports from './components/Reports';
 import Fechamento from './components/Fechamento';
 import Mutuos from './components/Mutuos';
+import UsersPage from './components/Users';
 import Login from './components/Login';
 
 const ROLE_LABEL: Record<Role, string> = {
@@ -40,8 +42,9 @@ interface NavDef { to: string; label: string; roles: Role[]; }
 const NAV: NavDef[] = [
   { to: '/', label: 'Dashboard', roles: ['admin', 'analyst', 'client'] },
   { to: '/empresas', label: 'Empresas', roles: ['admin', 'analyst'] },
+  { to: '/usuarios', label: 'Usuários', roles: ['admin', 'analyst'] },
   { to: '/socios', label: 'Sócios', roles: ['admin', 'analyst'] },
-  { to: '/transacoes', label: 'Movimentações', roles: ['admin', 'analyst'] },
+  { to: '/transacoes', label: 'Movimentações', roles: ['admin', 'analyst', 'client'] },
   { to: '/mutuos', label: 'Mútuos', roles: ['admin', 'analyst'] },
   { to: '/fechamento', label: 'Fechamento', roles: ['admin', 'analyst', 'client'] },
   { to: '/relatorios', label: 'Relatórios', roles: ['admin', 'analyst', 'client'] },
@@ -49,6 +52,7 @@ const NAV: NavDef[] = [
 const NAV_ICON: Record<string, React.ReactNode> = {
   '/': <LayoutDashboard size={20} />,
   '/empresas': <Building2 size={20} />,
+  '/usuarios': <UserCog size={20} />,
   '/socios': <Users size={20} />,
   '/transacoes': <ArrowRightLeft size={20} />,
   '/mutuos': <Handshake size={20} />,
@@ -289,12 +293,13 @@ const App: React.FC = () => {
             <div className="p-4 lg:p-8 max-w-7xl mx-auto w-full">
               <Routes>
                 <Route path="/" element={<Dashboard data={data} />} />
-                {canManage && <Route path="/empresas" element={<Companies data={data} onUpdate={updateData} role={role} />} />}
+                {canManage && <Route path="/empresas" element={<Companies data={data} onUpdate={updateData} />} />}
+                {canManage && <Route path="/usuarios" element={<UsersPage data={data} onUpdate={updateData} />} />}
                 {canManage && <Route path="/socios" element={<Partners data={data} onUpdate={updateData} />} />}
-                {canManage && <Route path="/transacoes" element={<Transactions data={data} onUpdate={updateData} />} />}
+                <Route path="/transacoes" element={<Transactions data={data} onUpdate={updateData} />} />
                 {canManage && <Route path="/mutuos" element={<Mutuos data={data} onUpdate={updateData} />} />}
                 <Route path="/fechamento" element={<Fechamento data={data} canManage={canManage} />} />
-                <Route path="/relatorios" element={<Reports data={data} />} />
+                <Route path="/relatorios" element={<Reports data={data} canManage={canManage} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </div>

@@ -21,21 +21,22 @@ function serviceClient() {
   );
 }
 
-async function requireAdmin(req: Request) {
+async function requireStaff(req: Request) {
   const token = (req.headers.get('Authorization') || '').replace('Bearer ', '');
   if (!token) return json({ error: 'Token ausente' }, 401);
   const anon = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!);
   const { data, error } = await anon.auth.getUser(token);
   if (error || !data.user) return json({ error: 'Token inválido' }, 401);
-  if (data.user.app_metadata?.role !== 'admin') return json({ error: 'Somente administrador' }, 403);
+  const role = data.user.app_metadata?.role;
+  if (role !== 'admin' && role !== 'analyst') return json({ error: 'Somente administrador ou analista' }, 403);
   return { id: data.user.id };
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  const admin = await requireAdmin(req);
-  if (admin instanceof Response) return admin;
+  const staff = await requireStaff(req);
+  if (staff instanceof Response) return staff;
 
   const { id, name, cpf, email, phone, role, password } = await req.json();
   if (!id) return json({ error: 'id obrigatório' }, 400);
