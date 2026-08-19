@@ -161,7 +161,7 @@ const App: React.FC = () => {
         </aside>
 
         {/* Main Content Area */}
-        <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300`}>
+        <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${isSidebarOpen ? 'lg:ml-72' : 'lg:ml-0'}`}>
           {/* Header Bar */}
           <header className="h-16 bg-white border-b border-slate-200 flex items-center px-4 lg:px-8 shrink-0 shadow-sm z-20">
             <button 
