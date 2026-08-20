@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Handshake, Plus, Trash2, Pencil, X, AlertTriangle, Info, ArrowRight, Landmark, Percent, ShieldAlert, FileText, FileType2, CalendarClock } from 'lucide-react';
+import { Handshake, Plus, Trash2, Pencil, X, AlertTriangle, Info, ArrowRight, Landmark, Percent, ShieldAlert, FileText, FileType2, CalendarClock, ExternalLink } from 'lucide-react';
 import { AppData, Mutuo, MutuoDirection, SocioTipo, TransactionNature } from '../types';
 import { formatCurrency, computeMutuo, addMonthsToDateStr, formatDateBR } from '../dataService';
 import { exportMutuoContratoPdf, exportMutuoContratoDocx, MutuoContrato } from '../exportService';
@@ -150,12 +150,23 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">Contratos de Mútuo</h2>
           <p className="text-sm text-slate-500 font-medium">Empréstimos formalizados entre sócio e empresa — com IOF e IRRF sobre juros</p>
         </div>
-        <button
-          onClick={() => { closeForm(); setIsAdding(true); }}
-          className="w-full sm:w-auto bg-[#2B589A] hover:bg-[#1E3F6D] text-white px-6 py-3 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-[#2B589A]/20 font-bold"
-        >
-          <Plus size={20} /> Novo Mútuo
-        </button>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+          <a
+            href="https://sicalc.receita.fazenda.gov.br/sicalc/rapido/contribuinte"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-center gap-2 px-5 py-3 bg-white text-[#2B589A] border border-[#2B589A]/20 rounded-2xl hover:bg-[#2B589A]/5 transition-all font-bold text-sm"
+            title="Emitir DARF do IOF no SICALC (Receita Federal)"
+          >
+            <Landmark size={18} /> Emitir DARF (SICALC) <ExternalLink size={14} />
+          </a>
+          <button
+            onClick={() => { closeForm(); setIsAdding(true); }}
+            className="w-full sm:w-auto bg-[#2B589A] hover:bg-[#1E3F6D] text-white px-6 py-3 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-[#2B589A]/20 font-bold"
+          >
+            <Plus size={20} /> Novo Mútuo
+          </button>
+        </div>
       </div>
 
       {/* Nota legal */}
@@ -368,7 +379,7 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
                     )}
                     {c.iofAplicavel && (
                       <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
-                        <Landmark size={12} className="text-[#2B589A]" /> IOF = fixo {formatCurrency(c.iofFixo)} + diário {formatCurrency(c.iofDiario)} · recolher via DARF até o dia 20 do mês seguinte.
+                        <Landmark size={12} className="text-[#2B589A]" /> IOF = fixo {formatCurrency(c.iofFixo)} + diário {formatCurrency(c.iofDiario)} · recolher via DARF, código {m.socioTipo === 'PF' ? '7893' : '1150'}, até o 3º dia útil subsequente ao decêndio do fato gerador.
                       </p>
                     )}
                     {c.alertaSemJuros && (
