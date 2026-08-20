@@ -201,7 +201,9 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
             target="_blank"
             rel="noreferrer"
             className="flex items-center justify-center gap-2 px-5 py-3 bg-white text-[#2B589A] border border-[#2B589A]/20 rounded-2xl hover:bg-[#2B589A]/5 transition-all font-bold text-sm"
-            title="Emitir DARF do IOF no SICALC (Receita Federal)"
+            title={'Emitir DARF do IOF no SICALC (Receita Federal)\n\n' +
+              'Código DARF IOF — Mutuário Pessoa Física:\n7893-03 - DC - a partir de 01/01/2006 - IOF - Operações de Crédito - Pessoa Física - IOF - OPERAÇÕES DE CRÉDITO - TOMADOR PESSOA FÍSICA\n\n' +
+              'Código DARF IOF — Mutuário Pessoa Jurídica:\n1150-03 - DC - a partir de 01/01/2006 - IOF - Operações de Crédito - Pessoa Jurídica - IOF - OPERAÇÕES DE CRÉDITO - TOMADOR PESSOA JURÍDICA'}
           >
             <Landmark size={18} /> Emitir DARF (SICALC) <ExternalLink size={14} />
           </a>
