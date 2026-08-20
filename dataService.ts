@@ -64,7 +64,7 @@ const rowToTransaction = (r: any): Transaction => ({
   value: Number(r.value), type: r.type as TransactionType, nature: r.nature || undefined, description: r.description || '',
 });
 const rowToMutuo = (r: any): Mutuo => ({
-  id: r.id, companyId: r.company_id, partnerId: r.partner_id, direction: r.direction, socioTipo: r.socio_tipo,
+  id: r.id, numero: r.numero, companyId: r.company_id, partnerId: r.partner_id, direction: r.direction, socioTipo: r.socio_tipo,
   value: Number(r.value), releaseDate: r.release_date, firstInstallmentDate: r.first_installment_date || undefined,
   dueDate: r.due_date, parcelas: r.parcelas, annualInterestPct: Number(r.annual_interest_pct), observacao: r.observacao || undefined,
 });
@@ -162,7 +162,7 @@ export const syncAppData = async (prev: AppData, next: AppData): Promise<void> =
   const mutuosDiff = diffById(prev.mutuos || [], next.mutuos || []);
   if (mutuosDiff.upserts.length) {
     await supabase.from('mutuos').upsert(mutuosDiff.upserts.map(m => ({
-      id: m.id, company_id: m.companyId, partner_id: m.partnerId, direction: m.direction, socio_tipo: m.socioTipo,
+      id: m.id, numero: m.numero, company_id: m.companyId, partner_id: m.partnerId, direction: m.direction, socio_tipo: m.socioTipo,
       value: m.value, release_date: m.releaseDate, first_installment_date: m.firstInstallmentDate || null,
       due_date: m.dueDate, parcelas: m.parcelas, annual_interest_pct: m.annualInterestPct, observacao: m.observacao || null,
     })));
@@ -263,6 +263,11 @@ export const formatDateBR = (s: string): string => {
   return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
 };
 
+// Nº do Contrato de Mútuo: sequencial (controle único, cross-empresa) + data de
+// liberação (crédito ao mutuário), ex.: 0001.06.07.2026.
+export const formatMutuoNumero = (numero: number, releaseDate: string): string =>
+  `${String(numero).padStart(4, '0')}.${formatDateBR(releaseDate).replace(/\//g, '.')}`;
+
 // Soma meses a uma data 'YYYY-MM-DD', preservando o dia quando possível
 // (ajusta para o último dia do mês de destino se o dia não existir —
 // ex.: 31/01 + 1 mês -> 28/02 ou 29/02).
@@ -345,6 +350,48 @@ export const computeMutuo = (m: Mutuo): MutuoCalculo => {
     installmentIrrf,
     alertaSemJuros: iofAplicavel && m.annualInterestPct <= 0,
   };
+};
+
+export interface MutuoScheduleRow {
+  numero: number;
+  vencimento: string; // YYYY-MM-DD
+  valorParcela: number;
+  amortizacao: number;
+  juros: number;
+  irrf: number;
+  saldoDevedor: number; // saldo após a parcela
+}
+
+// Cronograma completo de amortização (Tabela Price), parcela a parcela — usa a
+// mesma taxa mensal e alíquota de IRRF (fixa pelo prazo total) já aplicadas na
+// 1ª parcela por computeMutuo. Data da 1ª parcela: a informada no contrato ou,
+// na falta dela (contratos antigos), calculada a partir do vencimento final
+// menos (parcelas-1) meses.
+export const computeMutuoSchedule = (m: Mutuo): MutuoScheduleRow[] => {
+  const n = Math.max(1, Math.round(m.parcelas || 1));
+  const monthlyRate = (m.annualInterestPct || 0) / 100 / 12;
+  const installmentValue = computeInstallmentValue(m.value, m.annualInterestPct, m.parcelas);
+  const irrfAliquota = irrfJurosAliquota(diasEntre(m.releaseDate, m.dueDate));
+  const firstDate = m.firstInstallmentDate || addMonthsToDateStr(m.dueDate, -(n - 1));
+
+  const rows: MutuoScheduleRow[] = [];
+  let saldo = m.value;
+  for (let i = 1; i <= n; i++) {
+    const juros = monthlyRate > 0 ? saldo * monthlyRate : 0;
+    let amortizacao = monthlyRate > 0 ? installmentValue - juros : installmentValue;
+    if (i === n) amortizacao = saldo; // última parcela zera o saldo (absorve arredondamentos)
+    saldo = Math.max(0, saldo - amortizacao);
+    rows.push({
+      numero: i,
+      vencimento: addMonthsToDateStr(firstDate, i - 1) || firstDate,
+      valorParcela: amortizacao + juros,
+      amortizacao,
+      juros,
+      irrf: juros * irrfAliquota,
+      saldoDevedor: saldo,
+    });
+  }
+  return rows;
 };
 
 export const formatCurrency = (value: number): string => {

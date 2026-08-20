@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle } from 'docx';
-import { formatCurrency } from './dataService';
+import { formatCurrency, formatMutuoNumero, MutuoScheduleRow } from './dataService';
 
 const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
@@ -51,7 +51,7 @@ const fmtDate = (s: string) => {
   return (y && m && d) ? `${d}/${m}/${y}` : s;
 };
 
-const slug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+export const slug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
 
 // ---------- Excel (.xlsx) ----------
 export const exportFechamentoXlsx = (d: FechamentoExport) => {
@@ -339,6 +339,7 @@ export const exportRelatorioPdf = (d: RelatorioExport) => {
 
 // ---------- Contrato de Mútuo (PDF) ----------
 export interface MutuoContrato {
+  numero: number;
   direction: 'EMPRESA_PARA_SOCIO' | 'SOCIO_PARA_EMPRESA';
   socioTipo: 'PF' | 'PJ';
   empresaRazao: string;
@@ -370,7 +371,7 @@ const dataExtenso = (d = new Date()) => {
 };
 
 type ContratoBlock =
-  | { kind: 'title' | 'note' | 'para' | 'heading'; text: string }
+  | { kind: 'title' | 'subtitle' | 'note' | 'para' | 'heading'; text: string }
   | { kind: 'para-prefix'; prefix: string; rest: string } // parágrafo com o início ("MUTUANTE:"/"MUTUÁRIO:") em negrito
   | { kind: 'signrow'; left: string; right: string }
   | { kind: 'spacer'; lines?: number }; // linhas em branco (padrão 2)
@@ -391,6 +392,7 @@ const buildContratoBlocks = (m: MutuoContrato): { blocks: ContratoBlock[]; fileB
   const b: ContratoBlock[] = [];
   // Título sem a referência "GRATUITO" (para não estimular a prática).
   b.push({ kind: 'title', text: `CONTRATO DE MÚTUO${oneroso ? ' FENERATÍCIO' : ''}` });
+  b.push({ kind: 'subtitle', text: `Nº ${formatMutuoNumero(m.numero, m.releaseDate)}` });
   b.push({ kind: 'para', text: 'Pelo presente instrumento particular, as partes a seguir qualificadas:' });
   b.push({ kind: 'para-prefix', prefix: 'MUTUANTE:', rest: ` ${mutuante}; e` });
   b.push({ kind: 'para-prefix', prefix: 'MUTUÁRIO:', rest: ` ${mutuario}.` });
@@ -468,6 +470,9 @@ export const buildMutuoContratoDoc = (m: MutuoContrato): { doc: jsPDF; fileBase:
     if (bl.kind === 'title') {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor('#2B589A');
       doc.text(bl.text, pageW / 2, y, { align: 'center' }); y += 22; doc.setTextColor('#111111');
+    } else if (bl.kind === 'subtitle') {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor('#64748B');
+      doc.text(bl.text, pageW / 2, y, { align: 'center' }); y += 18; doc.setTextColor('#111111');
     } else if (bl.kind === 'note') {
       doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor('#9a3412');
       const lines = doc.splitTextToSize(bl.text, maxW); ensure(lines.length * 11 + 10);
@@ -554,10 +559,269 @@ const buildSignatureTable = (left: string, right: string): Table =>
     ],
   });
 
+// ---------- Mútuo: resumo compartilhado pelo Espelho e pelo Demonstrativo ----------
+export interface MutuoResumo {
+  numero: number;
+  direction: 'EMPRESA_PARA_SOCIO' | 'SOCIO_PARA_EMPRESA';
+  socioTipo: 'PF' | 'PJ';
+  empresaFantasia: string;
+  socioNome: string;
+  valor: number;
+  releaseDate: string;
+  firstInstallmentDate?: string;
+  dueDate: string;
+  parcelas: number;
+  annualInterestPct: number;
+  dias: number;
+  juros: number;
+  iofFixo: number;
+  iofDiario: number;
+  iof: number;
+  iofAplicavel: boolean;
+  irrfAliquota: number; // fração
+  irrfJuros: number;
+  totalComJuros: number;
+  installmentValue: number;
+  installmentAmortizacao: number;
+  installmentJuros: number;
+  installmentIrrf: number;
+  alertaSemJuros: boolean;
+  observacao?: string;
+  fileBase: string;
+}
+
+const espelhoStatBox = (doc: jsPDF, x: number, y: number, w: number, h: number, label: string, value: string, tone: 'blue' | 'rose' | 'slate' = 'slate') => {
+  const bg: [number, number, number] = tone === 'blue' ? [237, 243, 251] : tone === 'rose' ? [255, 241, 242] : [248, 250, 252];
+  const fg: [number, number, number] = tone === 'blue' ? [43, 88, 154] : tone === 'rose' ? [225, 29, 72] : [51, 65, 85];
+  doc.setFillColor(...bg);
+  doc.roundedRect(x, y, w, h, 7, 7, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(6); doc.setTextColor(150, 150, 150);
+  doc.text(label.toUpperCase(), x + 9, y + 13, { maxWidth: w - 18 });
+  doc.setFontSize(10.5); doc.setTextColor(...fg);
+  doc.text(value, x + 9, y + h - 10, { maxWidth: w - 18 });
+  doc.setTextColor(30, 41, 59);
+};
+
+const espelhoStatRow = (doc: jsPDF, marginX: number, maxW: number, y: number, items: { label: string; value: string; tone?: 'blue' | 'rose' | 'slate' }[]): number => {
+  const cols = items.length;
+  const gap = 8, boxH = 40;
+  const boxW = (maxW - gap * (cols - 1)) / cols;
+  items.forEach((it, i) => espelhoStatBox(doc, marginX + i * (boxW + gap), y, boxW, boxH, it.label, it.value, it.tone));
+  return y + boxH + 14;
+};
+
+// ---------- Espelho do Mútuo (impressão da tela, PDF) ----------
+export const buildMutuoEspelhoDoc = (m: MutuoResumo): jsPDF => {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const marginX = 40;
+  const pageW = doc.internal.pageSize.getWidth();
+  const maxW = pageW - 2 * marginX;
+  let y = 46;
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor('#2B589A');
+  doc.text('Espelho do Mútuo', marginX, y);
+  y += 20;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor('#334155');
+  const origem = m.direction === 'EMPRESA_PARA_SOCIO' ? m.empresaFantasia : m.socioNome;
+  const destino = m.direction === 'EMPRESA_PARA_SOCIO' ? m.socioNome : m.empresaFantasia;
+  doc.text(`${origem}  →  ${destino}`, marginX, y);
+  y += 14;
+  doc.setTextColor('#94A3B8');
+  doc.text(`Contrato Nº ${formatMutuoNumero(m.numero, m.releaseDate)}`, marginX, y);
+  doc.setTextColor('#334155');
+  y += 22;
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor('#94A3B8');
+  doc.text('DADOS DO CONTRATO', marginX, y);
+  y += 8;
+  y = espelhoStatRow(doc, marginX, maxW, y, [
+    { label: 'Valor do Mútuo', value: formatCurrency(m.valor) },
+    { label: 'Data Pago', value: fmtDate(m.releaseDate) },
+    { label: 'Nº de Parcelas', value: String(m.parcelas) },
+    { label: 'Data 1ª Parcela', value: m.firstInstallmentDate ? fmtDate(m.firstInstallmentDate) : '—' },
+    { label: 'Data Última Parcela', value: fmtDate(m.dueDate) },
+  ]);
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor('#94A3B8');
+  doc.text('SIMULAÇÃO FISCAL', marginX, y);
+  y += 8;
+  y = espelhoStatRow(doc, marginX, maxW, y, [
+    { label: `Juros (${m.annualInterestPct}% a.a.)`, value: formatCurrency(m.juros) },
+    { label: `Parcela calculada (${m.parcelas}x)`, value: m.installmentValue > 0 ? formatCurrency(m.installmentValue) : '—' },
+    { label: 'IOF total', value: m.iofAplicavel ? formatCurrency(m.iof) : 'Não incide', tone: m.iofAplicavel ? 'blue' : 'slate' },
+    { label: `IRRF s/ juros (${(m.irrfAliquota * 100).toFixed(1)}%)`, value: formatCurrency(m.irrfJuros), tone: 'rose' },
+    { label: 'Total a devolver', value: formatCurrency(m.totalComJuros), tone: 'blue' },
+  ]);
+  y += 4;
+
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor('#475569');
+  if (m.installmentValue > 0) {
+    const t = doc.splitTextToSize(`Parcela calculada = amortização ${formatCurrency(m.installmentAmortizacao)} + juros ${formatCurrency(m.installmentJuros)} (1ª parcela) — dos quais ${formatCurrency(m.installmentIrrf)} de IRRF retido na fonte sobre os juros.`, maxW);
+    doc.text(t, marginX, y); y += t.length * 10.5 + 6;
+  }
+  if (m.iofAplicavel) {
+    const darfCode = m.socioTipo === 'PF' ? '7893' : '1150';
+    const t = doc.splitTextToSize(`IOF = fixo ${formatCurrency(m.iofFixo)} + diário ${formatCurrency(m.iofDiario)} · recolher via DARF, código ${darfCode}, até o 3º dia útil subsequente ao decêndio do fato gerador.`, maxW);
+    doc.text(t, marginX, y); y += t.length * 10.5 + 6;
+  }
+  if (m.alertaSemJuros) {
+    doc.setFillColor(255, 241, 242);
+    const t = doc.splitTextToSize('Empréstimo da empresa ao sócio sem juros: risco de ser reclassificado como distribuição disfarçada de lucros.', maxW - 20);
+    const boxH = t.length * 11 + 14;
+    doc.roundedRect(marginX, y, maxW, boxH, 6, 6, 'F');
+    doc.setTextColor('#BE123C'); doc.setFont('helvetica', 'bold');
+    doc.text(t, marginX + 10, y + 15);
+    doc.setTextColor('#475569'); doc.setFont('helvetica', 'normal');
+    y += boxH + 8;
+  }
+  if (m.observacao) {
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor('#94A3B8');
+    const t = doc.splitTextToSize(`"${m.observacao}"`, maxW);
+    doc.text(t, marginX, y); y += t.length * 10.5 + 6;
+  }
+
+  y += 10;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor('#94A3B8');
+  doc.text(`Gerado por Sistema JC Buarque em ${new Date().toLocaleString('pt-BR')}`, marginX, y);
+  doc.setTextColor('#2B589A'); doc.setFont('helvetica', 'bold');
+  doc.text('Autenticidade Garantida', pageW - marginX, y, { align: 'right' });
+
+  return doc;
+};
+
+export const exportMutuoEspelhoPdf = (m: MutuoResumo) => {
+  const doc = buildMutuoEspelhoDoc(m);
+  doc.save(`espelho-mutuo-${m.fileBase}.pdf`);
+};
+
+// ---------- Demonstrativo PDF (memória de cálculo + tabela de amortização) ----------
+export interface MutuoDemonstrativo extends MutuoResumo {
+  schedule: MutuoScheduleRow[];
+}
+
+export const buildMutuoDemonstrativoDoc = (m: MutuoDemonstrativo): jsPDF => {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const marginX = 40;
+  const pageW = doc.internal.pageSize.getWidth();
+  let y = 46;
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor('#2B589A');
+  doc.text('Demonstrativo do Mútuo', marginX, y);
+  y += 20;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor('#334155');
+  const origem = m.direction === 'EMPRESA_PARA_SOCIO' ? m.empresaFantasia : m.socioNome;
+  const destino = m.direction === 'EMPRESA_PARA_SOCIO' ? m.socioNome : m.empresaFantasia;
+  doc.text(`${origem}  →  ${destino}`, marginX, y);
+  y += 14;
+  doc.setTextColor('#94A3B8');
+  doc.text(`Contrato Nº ${formatMutuoNumero(m.numero, m.releaseDate)}`, marginX, y);
+  doc.setTextColor('#334155');
+  y += 20;
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Valor do Mútuo', 'Data Pago', 'Nº de Parcelas', 'Data 1ª Parcela', 'Data Última Parcela', 'Taxa (a.a.)']],
+    body: [[
+      formatCurrency(m.valor),
+      fmtDate(m.releaseDate),
+      String(m.parcelas),
+      m.firstInstallmentDate ? fmtDate(m.firstInstallmentDate) : '—',
+      fmtDate(m.dueDate),
+      `${m.annualInterestPct}%`,
+    ]],
+    styles: { fontSize: 8.5, cellPadding: 6, halign: 'center' },
+    headStyles: { fillColor: [237, 243, 251], textColor: [51, 65, 85], fontStyle: 'bold' },
+    bodyStyles: { fontStyle: 'bold', textColor: [30, 41, 59] },
+    margin: { left: marginX, right: marginX }
+  });
+  // @ts-ignore autotable anexa lastAutoTable
+  y = (doc as any).lastAutoTable.finalY + 18;
+
+  // Memória de cálculo — como cada tributo/encargo foi apurado sobre o total do contrato.
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor('#334155');
+  doc.text('Memória de Cálculo', marginX, y);
+  y += 6;
+
+  const memoriaRows: string[][] = [
+    [`Juros (${m.annualInterestPct}% a.a. × ${m.dias} dias)`, formatCurrency(m.juros)],
+  ];
+  if (m.iofAplicavel) {
+    memoriaRows.push(['IOF fixo (0,38%)', formatCurrency(m.iofFixo)]);
+    memoriaRows.push([`IOF diário (${m.socioTipo === 'PF' ? '0,0082%/dia' : '0,0041%/dia'})`, formatCurrency(m.iofDiario)]);
+    memoriaRows.push(['IOF total', formatCurrency(m.iof)]);
+  } else {
+    memoriaRows.push(['IOF', 'Não incide (sócio → empresa)']);
+  }
+  memoriaRows.push([`IRRF sobre juros (${(m.irrfAliquota * 100).toFixed(1)}%)`, formatCurrency(m.irrfJuros)]);
+  memoriaRows.push(['Total a devolver (principal + juros)', formatCurrency(m.totalComJuros)]);
+
+  autoTable(doc, {
+    startY: y + 8,
+    body: memoriaRows,
+    theme: 'plain',
+    styles: { fontSize: 8.5, cellPadding: { top: 3, bottom: 3, left: 8, right: 8 }, textColor: [71, 85, 105] },
+    columnStyles: { 0: { fontStyle: 'bold' }, 1: { halign: 'right', fontStyle: 'bold', textColor: [30, 41, 59] } },
+    margin: { left: marginX, right: marginX }
+  });
+  // @ts-ignore
+  y = (doc as any).lastAutoTable.finalY + 18;
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor('#334155');
+  doc.text('Tabela de Amortização (Tabela Price)', marginX, y);
+  y += 6;
+
+  const totais = m.schedule.reduce((acc, r) => ({
+    parcela: acc.parcela + r.valorParcela,
+    amortizacao: acc.amortizacao + r.amortizacao,
+    juros: acc.juros + r.juros,
+    irrf: acc.irrf + r.irrf,
+  }), { parcela: 0, amortizacao: 0, juros: 0, irrf: 0 });
+
+  autoTable(doc, {
+    startY: y + 8,
+    head: [['Nº', 'Vencimento', 'Parcela', 'Amortização', 'Juros', 'IRRF', 'Saldo Devedor']],
+    body: m.schedule.map(r => [
+      String(r.numero),
+      fmtDate(r.vencimento),
+      formatCurrency(r.valorParcela),
+      formatCurrency(r.amortizacao),
+      formatCurrency(r.juros),
+      formatCurrency(r.irrf),
+      formatCurrency(r.saldoDevedor),
+    ]),
+    foot: [['', 'TOTAL', formatCurrency(totais.parcela), formatCurrency(totais.amortizacao), formatCurrency(totais.juros), formatCurrency(totais.irrf), '']],
+    styles: { fontSize: 8, cellPadding: 5, halign: 'right' },
+    headStyles: { fillColor: [43, 88, 154], textColor: 255, halign: 'right' },
+    footStyles: { fillColor: [237, 243, 251], textColor: [51, 65, 85], fontStyle: 'bold', halign: 'right' },
+    columnStyles: { 0: { halign: 'center', cellWidth: 26 }, 1: { halign: 'left' }, 5: { textColor: [225, 29, 72] } },
+    margin: { left: marginX, right: marginX }
+  });
+  // @ts-ignore
+  y = (doc as any).lastAutoTable.finalY + 20;
+
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor('#94A3B8');
+  const nota = doc.splitTextToSize('Parcela calculada pela Tabela Price (amortização + juros), taxa mensal derivada linearmente da SELIC anual informada. Estimativa operacional para acompanhamento do mútuo — não substitui as cláusulas do contrato, que seguem juros simples pro rata die sobre o total.', pageW - 2 * marginX);
+  doc.text(nota, marginX, y);
+  y += nota.length * 10 + 12;
+
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor('#94A3B8');
+  doc.text(`Gerado por Sistema JC Buarque em ${new Date().toLocaleString('pt-BR')}`, marginX, y);
+  doc.setTextColor('#2B589A'); doc.setFont('helvetica', 'bold');
+  doc.text('Autenticidade Garantida', pageW - marginX, y, { align: 'right' });
+
+  return doc;
+};
+
+export const exportMutuoDemonstrativoPdf = (m: MutuoDemonstrativo) => {
+  const doc = buildMutuoDemonstrativoDoc(m);
+  doc.save(`demonstrativo-mutuo-${m.fileBase}.pdf`);
+};
+
 export const exportMutuoContratoDocx = async (m: MutuoContrato) => {
   const { blocks, fileBase } = buildContratoBlocks(m);
   const children = blocks.flatMap(bl => {
-    if (bl.kind === 'title') return [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 220 }, children: [new TextRun({ text: bl.text, bold: true, size: 28, color: '2B589A' })] })];
+    if (bl.kind === 'title') return [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [new TextRun({ text: bl.text, bold: true, size: 28, color: '2B589A' })] })];
+    if (bl.kind === 'subtitle') return [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 220 }, children: [new TextRun({ text: bl.text, size: 18, color: '64748B' })] })];
     if (bl.kind === 'note') return [new Paragraph({ spacing: { after: 180 }, children: [new TextRun({ text: bl.text, italics: true, size: 16, color: '9A3412' })] })];
     if (bl.kind === 'heading') return [new Paragraph({ spacing: { before: 180, after: 60 }, children: [new TextRun({ text: bl.text, bold: true, size: 21 })] })];
     if (bl.kind === 'signrow') return [buildSignatureTable(bl.left, bl.right)];
