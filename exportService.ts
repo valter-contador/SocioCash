@@ -407,7 +407,13 @@ const buildContratoBlocks = (m: MutuoContrato): { blocks: ContratoBlock[]; fileB
   }
   b.push({ kind: 'heading', text: 'CLÁUSULA 4ª — DOS TRIBUTOS' });
   const tributos: string[] = [];
-  if (m.iofAplicavel) tributos.push(`Por se tratar de mútuo concedido por pessoa jurídica, incide o IOF no valor total de ${formatCurrency(m.iof)}, de responsabilidade do MUTUANTE, a ser recolhido via DARF até o 20º dia do mês subsequente ao da operação.`);
+  // Código do DARF do IOF-crédito segue a natureza jurídica do MUTUÁRIO (tomador), não do
+  // mutuante: PF = 7893, PJ = 1150. O IOF só se aplica quando a empresa é a mutuante (iofAplicavel),
+  // caso em que o mutuário é sempre o sócio — daí o código seguir m.socioTipo.
+  if (m.iofAplicavel) {
+    const darfCode = m.socioTipo === 'PF' ? '7893' : '1150';
+    tributos.push(`Por se tratar de mútuo concedido por pessoa jurídica, incide o IOF no valor total de ${formatCurrency(m.iof)}, de responsabilidade do MUTUANTE, a ser recolhido via DARF, código ${darfCode}, até o 3º dia útil subsequente ao decêndio de ocorrência do fato gerador, nos termos do art. 70, II, "c", da Lei nº 11.196/2005.`);
+  }
   else tributos.push(`Não há incidência de IOF corporativo, por se tratar de mútuo concedido por pessoa física à pessoa jurídica.`);
   if (oneroso) tributos.push(`Sobre os juros incide o Imposto de Renda Retido na Fonte à alíquota de ${(m.irrfAliquota * 100).toFixed(1)}% (${formatCurrency(m.irrfJuros)}), conforme o prazo da operação, retido por ocasião do pagamento/crédito dos rendimentos.`);
   b.push({ kind: 'para', text: tributos.join(' ') });
