@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { FileText, Download, Filter, Building2, Calendar, ChevronDown, ChevronUp, CheckCircle2, Info } from 'lucide-react';
+import { FileText, Download, Filter, Building2, Calendar, ChevronDown, ChevronUp, CheckCircle2, Info, Send } from 'lucide-react';
 import { AppData, TransactionType } from '../types';
 import { formatCurrency, formatDateBR } from '../dataService';
 import { exportRelatorioPdf } from '../exportService';
@@ -158,6 +158,16 @@ const Reports: React.FC<ReportsProps> = ({ data, canManage }) => {
           <Download size={20} />
           Exportar PDF
         </button>
+      </div>
+
+      {/* Nota de envio à contabilidade */}
+      <div className="bg-indigo-50/60 border-l-4 border-[#2B589A] p-5 rounded-r-2xl shadow-sm">
+        <div className="flex items-start gap-3">
+          <Send size={18} className="text-[#2B589A] mt-0.5 shrink-0" />
+          <p className="text-sm text-[#1E3F6D] font-semibold leading-relaxed">
+            Enviar para a contabilidade da JCBuarque através do Onvio o Relatório de Fechamento gerado juntamente com os extratos bancários das contas ativas devidamente conciliadas.
+          </p>
+        </div>
       </div>
 
       {reportData ? (

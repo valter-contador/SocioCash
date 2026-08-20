@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info, Building2, Filter, FileText, FileSpreadsheet, Handshake } from 'lucide-react';
+import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info, Building2, Filter, FileText, FileSpreadsheet, Handshake, Send } from 'lucide-react';
 import { AppData, Transaction, TransactionType, TransactionNature, NATURE_ORDER, NATURE_META } from '../types';
 import { formatCurrency, IRRF_LUCROS_THRESHOLD, IRRF_LUCROS_RATE, irrfBaseFromNet, irrfLucrosFromNet, parseDateParts, formatDateBR } from '../dataService';
 import { exportFechamentoPdf, exportFechamentoXlsx, FechamentoExport } from '../exportService';
@@ -272,6 +272,16 @@ const Fechamento: React.FC<FechamentoProps> = ({ data, canManage }) => {
           >
             <FileSpreadsheet size={18} /> Excel
           </button>
+        </div>
+      </div>
+
+      {/* Nota de envio à contabilidade */}
+      <div className="bg-indigo-50/60 border-l-4 border-[#2B589A] p-5 rounded-r-2xl shadow-sm">
+        <div className="flex items-start gap-3">
+          <Send size={18} className="text-[#2B589A] mt-0.5 shrink-0" />
+          <p className="text-sm text-[#1E3F6D] font-semibold leading-relaxed">
+            Enviar para a contabilidade da JCBuarque através do Onvio o Relatório de Fechamento gerado juntamente com os extratos bancários das contas ativas devidamente conciliadas.
+          </p>
         </div>
       </div>
 
