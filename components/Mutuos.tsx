@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Handshake, Plus, Trash2, Pencil, X, AlertTriangle, Info, ArrowRight, Landmark, Percent, ShieldAlert, FileText, FileType2, CalendarClock, ExternalLink } from 'lucide-react';
+import { Handshake, Plus, Trash2, Pencil, X, AlertTriangle, Info, ArrowRight, Landmark, Percent, ShieldAlert, FileText, FileType2, CalendarClock, ExternalLink, Table2, Building2, Wallet, Printer } from 'lucide-react';
 import { AppData, Mutuo, MutuoDirection, SocioTipo, TransactionNature } from '../types';
-import { formatCurrency, computeMutuo, addMonthsToDateStr, formatDateBR } from '../dataService';
-import { exportMutuoContratoPdf, exportMutuoContratoDocx, MutuoContrato } from '../exportService';
+import { formatCurrency, computeMutuo, computeMutuoSchedule, addMonthsToDateStr, formatDateBR, formatMutuoNumero } from '../dataService';
+import { exportMutuoContratoPdf, exportMutuoContratoDocx, exportMutuoEspelhoPdf, exportMutuoDemonstrativoPdf, MutuoContrato, MutuoResumo, slug } from '../exportService';
 import CurrencyInput from './CurrencyInput';
 
 interface MutuosProps {
@@ -39,7 +39,9 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm());
+  const [filterCompanyId, setFilterCompanyId] = useState('');
   const mutuos = data.mutuos || [];
+  const filteredMutuos = filterCompanyId ? mutuos.filter(m => m.companyId === filterCompanyId) : mutuos;
 
   // Pré-preenchimento vindo do Fechamento ("Formalizar mútuo deste saldo").
   useEffect(() => {
@@ -76,7 +78,8 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
     if (editingId) {
       onUpdate({ ...data, mutuos: mutuos.map(m => m.id === editingId ? { ...m, ...form } : m) });
     } else {
-      const novo: Mutuo = { id: crypto.randomUUID(), ...form };
+      const proximoNumero = mutuos.reduce((max, m) => Math.max(max, m.numero || 0), 0) + 1;
+      const novo: Mutuo = { id: crypto.randomUUID(), numero: proximoNumero, ...form };
       onUpdate({ ...data, mutuos: [...mutuos, novo] });
     }
     closeForm();
@@ -115,6 +118,7 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
     if (!company || !partner) { alert('Empresa ou sócio não encontrado.'); return null; }
     const calc = computeMutuo(m);
     return {
+      numero: m.numero,
       direction: m.direction,
       socioTipo: m.socioTipo,
       empresaRazao: company.razaoSocial,
@@ -142,6 +146,47 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
   };
   const gerarContratoPdf = (m: Mutuo) => { const p = buildPayload(m); if (p) exportMutuoContratoPdf(p); };
   const gerarContratoWord = (m: Mutuo) => { const p = buildPayload(m); if (p) exportMutuoContratoDocx(p); };
+
+  const buildResumoPayload = (m: Mutuo): MutuoResumo | null => {
+    const company = data.companies.find(c => c.id === m.companyId);
+    const partner = data.partners.find(p => p.id === m.partnerId);
+    if (!company || !partner) { alert('Empresa ou sócio não encontrado.'); return null; }
+    const fileBase = m.direction === 'EMPRESA_PARA_SOCIO'
+      ? `${slug(company.nomeFantasia)}-para-${slug(partner.name)}`
+      : `${slug(partner.name)}-para-${slug(company.nomeFantasia)}`;
+    const calc = computeMutuo(m);
+    return {
+      numero: m.numero,
+      direction: m.direction,
+      socioTipo: m.socioTipo,
+      empresaFantasia: company.nomeFantasia,
+      socioNome: partner.name,
+      valor: m.value,
+      releaseDate: m.releaseDate,
+      firstInstallmentDate: m.firstInstallmentDate,
+      dueDate: m.dueDate,
+      parcelas: m.parcelas,
+      annualInterestPct: m.annualInterestPct,
+      dias: calc.dias,
+      juros: calc.juros,
+      iofFixo: calc.iofFixo,
+      iofDiario: calc.iofDiario,
+      iof: calc.iof,
+      iofAplicavel: calc.iofAplicavel,
+      irrfAliquota: calc.irrfAliquota,
+      irrfJuros: calc.irrfJuros,
+      totalComJuros: calc.totalComJuros,
+      installmentValue: calc.installmentValue,
+      installmentAmortizacao: calc.installmentAmortizacao,
+      installmentJuros: calc.installmentJuros,
+      installmentIrrf: calc.installmentIrrf,
+      alertaSemJuros: calc.alertaSemJuros,
+      observacao: m.observacao,
+      fileBase,
+    };
+  };
+  const gerarEspelhoPdf = (m: Mutuo) => { const p = buildResumoPayload(m); if (p) exportMutuoEspelhoPdf(p); };
+  const gerarDemonstrativoPdf = (m: Mutuo) => { const p = buildResumoPayload(m); if (p) exportMutuoDemonstrativoPdf({ ...p, schedule: computeMutuoSchedule(m) }); };
 
   return (
     <div className="space-y-6 pb-24">
@@ -178,6 +223,22 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
             IOF e IRRF sobre juros calculados conforme as alíquotas validadas com a contabilidade. Informe a <strong>taxa SELIC vigente</strong> (obrigatória) e formalize o mútuo por <strong>contrato</strong> com prazo, parcelas e juros de mercado, para não ser desconfigurado como distribuição de lucros/pró-labore.
           </p>
         </div>
+      </div>
+
+      {/* Filtro por empresa — individualiza a visão dos contratos, igual a Fechamento/Relatórios */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-end gap-4">
+        <div className="flex-1 min-w-[260px] space-y-2">
+          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1 flex items-center gap-1.5"><Building2 size={12} /> Empresa</label>
+          <select
+            className="w-full p-3.5 bg-slate-50 text-slate-900 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-[#2B589A] font-bold transition-all"
+            value={filterCompanyId}
+            onChange={e => setFilterCompanyId(e.target.value)}
+          >
+            <option value="">Todas as empresas</option>
+            {data.companies.map(c => <option key={c.id} value={c.id}>{c.nomeFantasia}</option>)}
+          </select>
+        </div>
+        <p className="text-[11px] text-slate-400 font-semibold pb-3.5">{filteredMutuos.length} contrato(s)</p>
       </div>
 
       {/* Formulário */}
@@ -327,9 +388,9 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
       )}
 
       {/* Lista de mútuos */}
-      {mutuos.length > 0 ? (
+      {filteredMutuos.length > 0 ? (
         <div className="space-y-5">
-          {mutuos.map(m => {
+          {filteredMutuos.map(m => {
             const c = computeMutuo(m);
             const empresaToSocio = m.direction === 'EMPRESA_PARA_SOCIO';
             return (
@@ -344,6 +405,9 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
                         {empresaToSocio ? companyName(m.companyId) : partnerName(m.partnerId)}
                         <ArrowRight size={14} className="text-[#2B589A]" />
                         {empresaToSocio ? partnerName(m.partnerId) : companyName(m.companyId)}
+                        <span className="px-2 py-0.5 bg-[#2B589A]/5 text-[#2B589A] border border-[#2B589A]/10 rounded-full text-[10px] font-black tracking-tight">
+                          Nº {formatMutuoNumero(m.numero, m.releaseDate)}
+                        </span>
                       </div>
                       <p className="text-[11px] text-slate-400 font-medium">
                         {formatCurrency(m.value)} · {c.dias} dias · {m.parcelas} parcela(s) · {m.socioTipo} · {fmtDate(m.releaseDate)} → {fmtDate(m.dueDate)}
@@ -357,12 +421,29 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
                     <button onClick={() => gerarContratoWord(m)} className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black tracking-tight hover:bg-emerald-700 shadow-lg shadow-emerald-600/20 transition-all">
                       <FileType2 size={16} /> Word (.docx)
                     </button>
+                    <button onClick={() => gerarEspelhoPdf(m)} className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white rounded-xl text-xs font-black tracking-tight hover:bg-slate-800 shadow-lg shadow-slate-700/20 transition-all">
+                      <Printer size={16} /> Espelho do Mútuo
+                    </button>
+                    <button onClick={() => gerarDemonstrativoPdf(m)} className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 text-white rounded-xl text-xs font-black tracking-tight hover:bg-amber-700 shadow-lg shadow-amber-600/20 transition-all">
+                      <Table2 size={16} /> Demonstrativo PDF
+                    </button>
                     <button onClick={() => handleEditClick(m)} className="p-2 text-slate-300 hover:text-[#2B589A] hover:bg-[#2B589A]/5 rounded-xl transition-colors" title="Reabrir para edição"><Pencil size={18} /></button>
                     <button onClick={() => handleDelete(m.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={18} /></button>
                   </div>
                 </div>
 
-                <div className="p-6 lg:p-8 grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="px-6 lg:px-8 pt-6 lg:pt-8 space-y-2">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><Wallet size={12} /> Dados do Contrato</h4>
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                    <Metric label="Valor do Mútuo" value={formatCurrency(m.value)} />
+                    <Metric label="Data Pago" value={fmtDate(m.releaseDate)} />
+                    <Metric label="Nº de Parcelas" value={String(m.parcelas)} />
+                    <Metric label="Data 1ª Parcela" value={m.firstInstallmentDate ? fmtDate(m.firstInstallmentDate) : '—'} />
+                    <Metric label="Data Última Parcela" value={fmtDate(m.dueDate)} />
+                  </div>
+                </div>
+
+                <div className="p-6 lg:p-8 grid grid-cols-2 lg:grid-cols-5 gap-4">
                   <Metric label={`Juros (${m.annualInterestPct}% a.a.)`} value={formatCurrency(c.juros)} />
                   <Metric label={`Parcela calculada (${m.parcelas}x)`} value={c.installmentValue > 0 ? formatCurrency(c.installmentValue) : '—'} />
                   <Metric label="IOF total" value={c.iofAplicavel ? formatCurrency(c.iof) : 'Não incide'} tone={c.iofAplicavel ? 'blue' : 'muted'} />
@@ -399,8 +480,8 @@ const Mutuos: React.FC<MutuosProps> = ({ data, onUpdate }) => {
           <div className="w-24 h-24 rounded-[2rem] bg-slate-50 flex items-center justify-center mb-6 text-slate-200 border border-slate-100">
             <Handshake size={48} />
           </div>
-          <h3 className="text-2xl font-black text-slate-800 tracking-tight">Nenhum contrato de mútuo</h3>
-          <p className="text-slate-400 font-medium max-w-md mt-2">Cadastre um empréstimo formalizado entre sócio e empresa para calcular IOF e IRRF sobre os juros.</p>
+          <h3 className="text-2xl font-black text-slate-800 tracking-tight">{filterCompanyId ? 'Nenhum contrato para esta empresa' : 'Nenhum contrato de mútuo'}</h3>
+          <p className="text-slate-400 font-medium max-w-md mt-2">{filterCompanyId ? 'Selecione outra empresa ou cadastre um novo mútuo para ela.' : 'Cadastre um empréstimo formalizado entre sócio e empresa para calcular IOF e IRRF sobre os juros.'}</p>
         </div>
       ))}
     </div>

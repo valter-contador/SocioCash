@@ -119,6 +119,7 @@ export type SocioTipo = 'PF' | 'PJ';
 
 export interface Mutuo {
   id: string;
+  numero: number;               // numeração sequencial do contrato (controle único) — exibida como NNNN.dd.mm.aaaa (data de liberação)
   companyId: string;
   partnerId: string;
   direction: MutuoDirection;    // sentido do empréstimo
