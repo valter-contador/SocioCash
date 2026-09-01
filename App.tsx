@@ -298,7 +298,7 @@ const App: React.FC = () => {
                 {canManage && <Route path="/socios" element={<Partners data={data} onUpdate={updateData} />} />}
                 <Route path="/transacoes" element={<Transactions data={data} onUpdate={updateData} />} />
                 {canManage && <Route path="/mutuos" element={<Mutuos data={data} onUpdate={updateData} />} />}
-                <Route path="/fechamento" element={<Fechamento data={data} canManage={canManage} />} />
+                <Route path="/fechamento" element={<Fechamento data={data} canManage={canManage} onUpdate={updateData} />} />
                 <Route path="/relatorios" element={<Reports data={data} canManage={canManage} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
