@@ -1,14 +1,16 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info, Building2, Filter, FileText, FileSpreadsheet, Handshake, Send } from 'lucide-react';
+import { CalendarClock, Users, AlertTriangle, ShieldCheck, ArrowUpCircle, ArrowDownCircle, Landmark, Info, Building2, Filter, FileText, FileSpreadsheet, Handshake, Send, Scale, CheckCircle2 } from 'lucide-react';
 import { AppData, Transaction, TransactionType, TransactionNature, NATURE_ORDER, NATURE_META } from '../types';
 import { formatCurrency, IRRF_LUCROS_THRESHOLD, IRRF_LUCROS_RATE, irrfBaseFromNet, irrfLucrosFromNet, parseDateParts, formatDateBR } from '../dataService';
 import { exportFechamentoPdf, exportFechamentoXlsx, FechamentoExport } from '../exportService';
+import CurrencyInput from './CurrencyInput';
 
 interface FechamentoProps {
   data: AppData;
   canManage?: boolean;
+  onUpdate?: (data: AppData) => void;
 }
 
 const months = [
@@ -34,20 +36,31 @@ interface PartnerExtract {
   groups: NatureGroup[];
   totalEntradas: number;
   totalSaidas: number;
-  lucros: number;    // líquido informado
+  lucros: number;    // Antecipação de Lucros já conciliada/lançada no mês — base oficial do IRRF
   irrfBase: number;  // base de cálculo (lucros / 0,9)
   irrf: number;
   // Fase 3 — análise de risco de conta corrente de sócio:
   saldoDevedor: number;      // Empréstimo − Pagto Empréstimo acumulado até o fim do mês (>0 = sócio deve)
   temMutuo: boolean;         // existe contrato de mútuo empresa→sócio para o par
   cobertoVigente: boolean;   // existe mútuo empresa→sócio ainda dentro do prazo (vencimento ≥ fim do mês)
+  // Conciliação de Retiradas — Antecipação de Lucros:
+  retiradaSocios: number;       // total de Retirada de Sócios (débito) lançado NO MÊS
+  antecipacaoLancada: number;   // total de Antecipação de Lucros (crédito) já lançado NO MÊS (base do IRRF)
+  proLaboreLancadoNoMes: boolean; // já existe Pró-Labore lançado neste mês para o par?
+  saldoRetiradaEmAberto: number; // saldo ACUMULADO (até o fim do mês) de Retirada de Sócios ainda não conciliada como Antecipação de Lucros — pode incluir meses anteriores
+  contasReferencia: { originAccountId: string; destinationAccountId: string } | null; // contas reaproveitadas das retiradas (reclassificação, sem movimentação bancária nova)
 }
 
-const Fechamento: React.FC<FechamentoProps> = ({ data, canManage }) => {
+const Fechamento: React.FC<FechamentoProps> = ({ data, canManage, onUpdate }) => {
   const navigate = useNavigate();
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+
+  // Conciliação de Retiradas — valores ainda não lançados, editáveis por sócio
+  // (undefined = usar o padrão sugerido, calculado a partir do saldo em aberto).
+  const [antecipInputs, setAntecipInputs] = useState<Record<string, number | undefined>>({});
+  const [proLaboreInputs, setProLaboreInputs] = useState<Record<string, number | undefined>>({});
 
   // Cliente só enxerga a própria empresa (RLS já restringe data.companies a 1 item) —
   // seleciona automaticamente, sem exibir o combo de escolha.
@@ -59,6 +72,55 @@ const Fechamento: React.FC<FechamentoProps> = ({ data, canManage }) => {
   // (a taxa SELIC é obrigatória e digitada pelo usuário lá).
   const formalizarMutuo = (partnerId: string, saldoDevedor: number) => {
     navigate('/mutuos', { state: { prefill: { companyId: selectedCompanyId, partnerId, value: saldoDevedor } } });
+  };
+
+  // Data de competência do lançamento de conciliação: último dia do mês selecionado.
+  const competenciaDate = () => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    return `${selectedYear}-${pad(selectedMonth + 1)}-${pad(lastDay)}`;
+  };
+
+  // Lança a Antecipação de Lucros (crédito) que reclassifica parte da Retirada de
+  // Sócios do mês — reaproveita as contas já vinculadas à retirada (sem nova
+  // movimentação bancária, é só reclassificação contábil).
+  const lancarAntecipacao = (ext: PartnerExtract, valor: number) => {
+    if (!onUpdate || !ext.contasReferencia || valor <= 0) return;
+    const novaTx: Transaction = {
+      id: crypto.randomUUID(),
+      date: competenciaDate(),
+      companyId: selectedCompanyId,
+      partnerId: ext.partnerId,
+      originAccountId: ext.contasReferencia.originAccountId,
+      destinationAccountId: ext.contasReferencia.destinationAccountId,
+      value: valor,
+      type: TransactionType.CREDIT,
+      nature: TransactionNature.ANTECIPACAO_LUCROS,
+      description: `Conciliação fechamento ${months[selectedMonth]}/${selectedYear} — reclassificação de Retirada de Sócios`,
+    };
+    onUpdate({ ...data, transactions: [...data.transactions, novaTx] });
+    setAntecipInputs(prev => ({ ...prev, [ext.partnerId]: undefined }));
+  };
+
+  // Lança o complemento de Pró-Labore líquido (débito) para justificar o saldo
+  // da retirada não coberto pela Antecipação de Lucros, quando o pró-labore
+  // regular ainda não foi lançado no mês.
+  const lancarProLabore = (ext: PartnerExtract, valor: number) => {
+    if (!onUpdate || !ext.contasReferencia || valor <= 0) return;
+    const novaTx: Transaction = {
+      id: crypto.randomUUID(),
+      date: competenciaDate(),
+      companyId: selectedCompanyId,
+      partnerId: ext.partnerId,
+      originAccountId: ext.contasReferencia.originAccountId,
+      destinationAccountId: ext.contasReferencia.destinationAccountId,
+      value: valor,
+      type: TransactionType.DEBIT,
+      nature: TransactionNature.PRO_LABORE,
+      description: `Conciliação fechamento ${months[selectedMonth]}/${selectedYear} — complemento de Pró-Labore líquido`,
+    };
+    onUpdate({ ...data, transactions: [...data.transactions, novaTx] });
+    setProLaboreInputs(prev => ({ ...prev, [ext.partnerId]: undefined }));
   };
 
   const closing = useMemo(() => {
@@ -106,17 +168,45 @@ const Fechamento: React.FC<FechamentoProps> = ({ data, canManage }) => {
         .filter(g => NATURE_META[g.nature].type === TransactionType.DEBIT)
         .reduce((s, g) => s + g.subtotal, 0);
 
-      // IRRF: total de Retirada de Lucros (líquido) deste sócio NESTA empresa no mês.
+      // Todos os lançamentos do par (empresa+sócio) ACUMULADOS até o fim do mês
+      // selecionado — usado tanto no saldo devedor de empréstimos quanto no saldo
+      // em aberto de Retirada de Sócios (a conciliação como Antecipação de Lucros
+      // pode ficar pendente por mais de um mês até a contabilidade confirmar a
+      // disponibilidade de lucro, daí ser acumulado e não só do mês corrente).
+      const cumTx = data.transactions.filter(t =>
+        t.companyId === selectedCompanyId && t.partnerId === partnerId && t.date <= endStr);
+
+      // IRRF: base oficial é o valor de Antecipação de Lucros já CONCILIADO/lançado
+      // NO MÊS (não a Retirada de Sócios bruta — esta só vira base de IRRF depois de
+      // reclassificada como Antecipação de Lucros no quadro de conciliação).
       // Base de cálculo = líquido / 0,9 (gross-up); IRRF = base × 10% acima do teto.
-      const lucrosGroup = groups.find(g => g.nature === TransactionNature.RETIRADA_LUCROS);
-      const lucros = lucrosGroup ? lucrosGroup.subtotal : 0;
+      const retiradaGroup = groups.find(g => g.nature === TransactionNature.RETIRADA_LUCROS);
+      const antecipacaoGroup = groups.find(g => g.nature === TransactionNature.ANTECIPACAO_LUCROS);
+      const retiradaSocios = retiradaGroup ? retiradaGroup.subtotal : 0;
+      const antecipacaoLancada = antecipacaoGroup ? antecipacaoGroup.subtotal : 0;
+      const proLaboreLancadoNoMes = groups.some(g => g.nature === TransactionNature.PRO_LABORE);
+      const lucros = antecipacaoLancada;
       const irrfBase = irrfBaseFromNet(lucros);
       const irrf = irrfLucrosFromNet(lucros);
 
+      // Saldo em aberto de Retirada de Sócios ACUMULADO até o fim do mês — a
+      // reconciliação (Antecipação de Lucros) pode "represar" retiradas de meses
+      // anteriores ainda não confirmadas pela contabilidade e quitá-las juntas
+      // num único lançamento posterior (padrão observado no extrato real do cliente).
+      const retiradaAcumulada = cumTx.filter(t => t.nature === TransactionNature.RETIRADA_LUCROS).reduce((s, t) => s + t.value, 0);
+      const antecipacaoAcumulada = cumTx.filter(t => t.nature === TransactionNature.ANTECIPACAO_LUCROS).reduce((s, t) => s + t.value, 0);
+      const saldoRetiradaEmAberto = Math.max(0, retiradaAcumulada - antecipacaoAcumulada);
+
+      // Contas reaproveitadas do lançamento de Retirada de Sócios mais recente
+      // (do mês, ou — na falta — do saldo acumulado) — a Antecipação de Lucros é
+      // reclassificação contábil, não nova movimentação bancária, então usa as
+      // mesmas contas já vinculadas à retirada.
+      const refTx = retiradaGroup?.txs[retiradaGroup.txs.length - 1]
+        || [...cumTx].filter(t => t.nature === TransactionNature.RETIRADA_LUCROS).sort((a, b) => a.date.localeCompare(b.date)).pop();
+      const contasReferencia = refTx ? { originAccountId: refTx.originAccountId, destinationAccountId: refTx.destinationAccountId } : null;
+
       // Saldo devedor de empréstimos ACUMULADO até o fim do mês:
       // Empréstimo (empresa→sócio) − Pagto Empréstimo (sócio→empresa).
-      const cumTx = data.transactions.filter(t =>
-        t.companyId === selectedCompanyId && t.partnerId === partnerId && t.date <= endStr);
       const emprestado = cumTx.filter(t => t.nature === TransactionNature.EMPRESTIMO).reduce((s, t) => s + t.value, 0);
       const devolvido = cumTx.filter(t => t.nature === TransactionNature.PAGTO_EMPRESTIMO).reduce((s, t) => s + t.value, 0);
       const saldoDevedor = emprestado - devolvido;
@@ -138,7 +228,12 @@ const Fechamento: React.FC<FechamentoProps> = ({ data, canManage }) => {
         temMutuo,
         cobertoVigente,
         irrfBase,
-        irrf
+        irrf,
+        retiradaSocios,
+        antecipacaoLancada,
+        proLaboreLancadoNoMes,
+        saldoRetiradaEmAberto,
+        contasReferencia
       };
     }).sort((a, b) => a.partnerName.localeCompare(b.partnerName));
 
@@ -209,7 +304,8 @@ const Fechamento: React.FC<FechamentoProps> = ({ data, canManage }) => {
           <Info size={18} className="text-amber-500 mt-0.5 shrink-0" />
           <p className="text-sm text-amber-800 font-semibold leading-relaxed">
             <span className="uppercase tracking-[0.2em] text-[10px] block mb-1 opacity-70">Previsão de IRRF sobre Lucros</span>
-            A apuração é por empresa e por sócio: somam-se as <strong>Retiradas de Lucros</strong> desta empresa para o mesmo sócio no mês.
+            A apuração é por empresa e por sócio: somam-se os valores de <strong>Antecipação de Lucros</strong> já conciliados desta empresa para o mesmo sócio no mês
+            (a <strong>Retirada de Sócios</strong> só entra na base do IRRF depois de reclassificada como Antecipação de Lucros no quadro de conciliação, abaixo).
             Se o total ultrapassar {formatCurrency(IRRF_LUCROS_THRESHOLD)}, a alíquota de <strong>{(IRRF_LUCROS_RATE * 100).toFixed(0)}%</strong> incide
             sobre <strong>todo</strong> o montante de lucros do período (não apenas o excedente). Valor indicativo para conferência contábil.
           </p>
@@ -413,7 +509,7 @@ const Fechamento: React.FC<FechamentoProps> = ({ data, canManage }) => {
                   </div>
                   <div className="space-y-0.5">
                     <div className="flex justify-between items-baseline">
-                      <span className="text-[11px] font-semibold text-slate-500">Lucros (líquido)</span>
+                      <span className="text-[11px] font-semibold text-slate-500">Antecipação de Lucros (conciliada)</span>
                       <span className="text-sm font-black text-slate-800 tracking-tight">{formatCurrency(ext.lucros)}</span>
                     </div>
                     <div className="flex justify-between items-baseline">
@@ -433,6 +529,127 @@ const Fechamento: React.FC<FechamentoProps> = ({ data, canManage }) => {
                   )}
                 </div>
               </div>
+
+              {/* Conciliação de Retiradas — Antecipação de Lucros (saldo acumulado, pode incluir meses anteriores ainda não confirmados pela contabilidade) */}
+              {(ext.retiradaSocios > 0 || ext.saldoRetiradaEmAberto > 0) && (() => {
+                const antecipDefault = ext.saldoRetiradaEmAberto;
+                const antecipInputRaw = antecipInputs[ext.partnerId] ?? antecipDefault;
+                const antecipInputClamped = Math.min(Math.max(0, antecipInputRaw), antecipDefault);
+                const saldoAposAntecip = Math.max(0, antecipDefault - antecipInputClamped);
+                const proLaboreInputRaw = proLaboreInputs[ext.partnerId] ?? saldoAposAntecip;
+                const proLaboreInputClamped = ext.proLaboreLancadoNoMes ? 0 : Math.min(Math.max(0, proLaboreInputRaw), saldoAposAntecip);
+                const saldoMutuo = Math.max(0, saldoAposAntecip - proLaboreInputClamped);
+                const previewLucros = ext.antecipacaoLancada + antecipInputClamped;
+                const previewIrrfBase = irrfBaseFromNet(previewLucros);
+                const previewIrrf = irrfLucrosFromNet(previewLucros);
+                const totalmenteConciliado = antecipDefault <= 0;
+
+                return (
+                  <div className="px-6 lg:px-8 pb-6 lg:pb-8">
+                    <div className={`rounded-2xl border p-5 ${totalmenteConciliado ? 'bg-emerald-50/40 border-emerald-100' : 'bg-indigo-50/40 border-indigo-100'}`}>
+                      <div className="flex items-center gap-2 mb-3">
+                        {totalmenteConciliado ? <CheckCircle2 size={16} className="text-emerald-500" /> : <Scale size={16} className="text-[#2B589A]" />}
+                        <h5 className="text-[11px] font-black uppercase tracking-widest text-slate-700">Conciliação de Retiradas — Antecipação de Lucros</h5>
+                      </div>
+
+                      {totalmenteConciliado ? (
+                        <p className="text-[12px] text-emerald-800 font-semibold leading-relaxed">
+                          Retirada de Sócios acumulada até {months[selectedMonth]}/{selectedYear} já totalmente conciliada como Antecipação de Lucros.
+                        </p>
+                      ) : !canManage ? (
+                        <p className="text-[11px] text-slate-400 font-medium">Saldo de {formatCurrency(antecipDefault)} ainda não conciliado. A conciliação é feita por administrador/analista.</p>
+                      ) : !ext.contasReferencia ? (
+                        <p className="text-[11px] text-slate-400 font-medium">Sem lançamento de Retirada de Sócios para reaproveitar as contas da conciliação.</p>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="flex justify-between items-baseline bg-amber-50/70 rounded-xl px-3 py-2 border border-amber-100">
+                              <span className="text-[11px] font-semibold text-amber-700">Saldo em aberto (acumulado)</span>
+                              <span className="text-sm font-black text-amber-800">{formatCurrency(antecipDefault)}</span>
+                            </div>
+                            <div className="flex justify-between items-baseline bg-white/60 rounded-xl px-3 py-2 border border-slate-100">
+                              <span className="text-[11px] font-semibold text-slate-500">Retirada de Sócios no mês</span>
+                              <span className="text-sm font-black text-slate-800">{formatCurrency(ext.retiradaSocios)}</span>
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-semibold -mt-2">
+                            Saldo em aberto = Retirada de Sócios − Antecipação de Lucros já lançada, acumulado desde o início até o fim deste mês (pode incluir meses anteriores ainda não confirmados pela contabilidade).
+                          </p>
+
+                          <div className="space-y-2">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Conciliar agora como Antecipação de Lucros (crédito)</label>
+                            <div className="flex gap-3 items-center">
+                              <div className="flex-1 relative">
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">R$</span>
+                                <CurrencyInput
+                                  value={antecipInputClamped}
+                                  onChange={v => setAntecipInputs(prev => ({ ...prev, [ext.partnerId]: v }))}
+                                  className="w-full pl-11 pr-4 py-3 bg-white text-slate-900 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2B589A] font-bold transition-all"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => lancarAntecipacao(ext, antecipInputClamped)}
+                                disabled={antecipInputClamped <= 0}
+                                className="shrink-0 px-4 py-3 bg-[#2B589A] text-white rounded-xl text-xs font-black tracking-tight hover:bg-[#1E3F6D] disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-[#2B589A]/20 transition-all"
+                              >
+                                Lançar
+                              </button>
+                            </div>
+                          </div>
+
+                          {saldoAposAntecip > 0 && !ext.proLaboreLancadoNoMes && (
+                            <div className="space-y-2 pt-1 border-t border-slate-100">
+                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                                Complementar com Pró-Labore líquido (saldo ainda não coberto: {formatCurrency(saldoAposAntecip)})
+                              </label>
+                              <div className="flex gap-3 items-center">
+                                <div className="flex-1 relative">
+                                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">R$</span>
+                                  <CurrencyInput
+                                    value={proLaboreInputClamped}
+                                    onChange={v => setProLaboreInputs(prev => ({ ...prev, [ext.partnerId]: v }))}
+                                    className="w-full pl-11 pr-4 py-3 bg-white text-slate-900 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-[#2B589A] font-bold transition-all"
+                                  />
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => lancarProLabore(ext, proLaboreInputClamped)}
+                                  disabled={proLaboreInputClamped <= 0}
+                                  className="shrink-0 px-4 py-3 bg-slate-700 text-white rounded-xl text-xs font-black tracking-tight hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-slate-700/20 transition-all"
+                                >
+                                  Lançar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {saldoMutuo > 0 && (
+                            <div className="pt-1 border-t border-slate-100 space-y-2">
+                              <p className="text-[12px] text-slate-600 font-semibold leading-relaxed">
+                                Saldo não coberto por Antecipação de Lucros{ext.proLaboreLancadoNoMes ? '' : ' nem Pró-Labore'}: classificar como Empréstimo (Mútuo).
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => formalizarMutuo(ext.partnerId, saldoMutuo)}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-xl text-xs font-black tracking-tight hover:bg-amber-600 shadow-lg shadow-amber-500/20 transition-all"
+                              >
+                                <Handshake size={16} /> Formalizar mútuo do saldo ({formatCurrency(saldoMutuo)})
+                              </button>
+                            </div>
+                          )}
+
+                          <div className="pt-2 border-t border-slate-100 bg-white/60 rounded-xl px-3 py-2 text-[11px] font-bold text-slate-600 space-y-1">
+                            <div className="flex justify-between"><span>Prévia — Antecipação total após lançar</span><span className="font-black">{formatCurrency(previewLucros)}</span></div>
+                            <div className="flex justify-between"><span>Prévia — Base de Cálculo IRRF (+10%)</span><span className="font-black">{formatCurrency(previewIrrfBase)}</span></div>
+                            <div className="flex justify-between text-rose-600"><span>Prévia — IRRF ({(IRRF_LUCROS_RATE * 100).toFixed(0)}%)</span><span className="font-black">{previewIrrf > 0 ? formatCurrency(previewIrrf) : `Isento (< ${formatCurrency(IRRF_LUCROS_THRESHOLD)})`}</span></div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {ext.saldoDevedor > 0 && (() => {
                 const lucrosAjustado = ext.lucros + ext.saldoDevedor;
